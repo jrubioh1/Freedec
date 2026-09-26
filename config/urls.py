@@ -2,22 +2,15 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
-
-from freedec.gui_views import (
-    AdminUploadGuiView,
-    PublicDecryptGuiView,
-    PublicRequestGuiView,
-)
+from django.views.generic import RedirectView
 
 urlpatterns = [
+    # Redirección dinámica de la raíz al portal base de Freedec (compatible con SCRIPT_NAME de Apache)
+    path("", RedirectView.as_view(pattern_name="freedec:gui-public-request", permanent=False), name="root-redirect"),
     # Panel de administración de Django
     path("admin/", admin.site.urls),
-    # Portal Web HTML visual directamente accesible en la raíz
-    path("", PublicRequestGuiView.as_view(), name="root-public-gui"),
-    path("descifrar/", PublicDecryptGuiView.as_view(), name="root-public-decrypt-gui"),
-    path("admin-upload/", AdminUploadGuiView.as_view(), name="root-admin-upload-gui"),
-    # Endpoints y vistas bajo namespace de la aplicación Freedec
-    path("api/freedec/", include("freedec.urls", namespace="freedec")),
+    # Todas las URLs de Freedec agrupadas bajo el prefijo base 'freedec/'
+    path("freedec/", include("freedec.urls", namespace="freedec")),
 ]
 
 # Servir archivos cifrados en desarrollo / staging

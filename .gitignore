@@ -42,6 +42,7 @@ sample_document.pdf
 media/
 encrypted_docs/
 staticfiles/
+config/presettings.py
 
 # IDEs & System files
 .vscode/

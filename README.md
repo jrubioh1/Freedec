@@ -98,10 +98,13 @@ poetry run python manage.py runserver 8000
 
 ### Paso 4: Probar la Interfaz Gráfica en tu Navegador
 * **Portal Público de Recuperación**: Abre [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) en tu navegador.
+* **Portal Público de Descifrado (.enc)**: Abre [http://127.0.0.1:8000/freedec/descifrar/](http://127.0.0.1:8000/freedec/descifrar/) en tu navegador.
 * **Portal de Subida de Administrador**: Inicia sesión en [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (usuario `admin`, contraseña `admin123`) y entra a [http://127.0.0.1:8000/freedec/admin-upload/](http://127.0.0.1:8000/freedec/admin-upload/).
 
 > [!TIP]
-> En este modo Staging, **el correo con la contraseña se imprime directamente en la terminal donde corre Django**, por lo que podrás ver la clave descifrada en pantalla sin configurar servidores SMTP reales.
+> **Configuración en claro y Presetting de Pruebas**: El proyecto funciona directamente sin necesidad de archivo `.env`.
+> - `config/settings.py`: Define el **setting genérico** en claro (sin dependencias de `.env` ni credenciales privadas).
+> - `config/presettings.py`: Contiene el presetting para pruebas locales con base de datos de staging y servidor SMTP real (**Ethereal Email**), permitiendo inspeccionar los correos de despacho en tiempo real en [https://ethereal.email/messages](https://ethereal.email/messages) ejecutando `python manage.py runserver --settings=config.presettings`.
 
 ### Paso 5: Probar el Flujo Automatizado por CLI (Opcional)
 En otra terminal distinta, ejecuta:
@@ -287,35 +290,37 @@ poetry run python manage.py runserver
 
 ## 6. Cómo Funciona y Cómo se Usa la Web GUI
 
-Una vez acoplado, tendrás dos portales web accesibles desde cualquier navegador:
+Una vez acoplado, tendrás los portales web accesibles desde cualquier navegador:
 
-### A. Portal de Administración (`http://localhost:8000/freedec/admin-upload/`)
-1. Inicia sesión primero con tu cuenta de administrador en `/admin/`.
-2. Accede a `/freedec/admin-upload/`.
+### A. Portal de Administración (`http://localhost:8000/freedec/admin-upload/` o Django Admin)
+1. Inicia sesión primero con tu cuenta de administrador en `/admin/` (o la ruta de admin de tu proyecto).
+2. Puedes registrar documentos desde `/admin/` (menú **Documentos Cifrados -> Añadir**) o desde la interfaz `/freedec/admin-upload/`.
 3. Selecciona tu documento en formato permitido (**PDF, LibreOffice .odt/.ods o Microsoft Office .docx/.xlsx**).
-4. Escribe la contraseña en texto plano con la que se descifrará el documento.
-5. Escribe las direcciones de correo autorizadas separadas por coma (ej. `director@empresa.com, auditor@empresa.com`).
-6. Pulsa **Cifrar y Registrar**.
-7. **Resultado**: La pantalla mostrará una tarjeta con:
-   * El **Hash SHA-256** del documento.
-   * El **Código de Acceso (`access_code`)** con botón de copiado rápido. *Guarda este código ahora para entregárselo al usuario; por seguridad Zero-Knowledge no volverá a mostrarse*.
-   * Un botón para descargar el archivo cifrado `.enc` si necesitas distribuirlo.
+4. Opcionalmente escribe una contraseña personalizada o déjalo vacío para que el sistema genere una automáticamente con alta entropía criptográfica (24 caracteres).
+5. Escribe las direcciones de correo autorizadas (puedes pulsar el botón `+` para añadir múltiples destinatarios de forma interactiva).
+6. Pulsa **Cifrar y Registrar** (o **Guardar** en el Admin).
+7. **Resultado**:
+   * **Descarga Automática de Recibo de Credenciales**: El navegador descargará al instante un archivo de texto `<nombre_original>_credenciales.txt` con el hash SHA-256, código secreto de acceso, contraseña y enlaces directos, para que el administrador pueda guardarlo de forma local sin que quede expuesto en claro en el servidor.
+   * La pantalla mostrará el **Código de Acceso (`access_code`)** con botón de copiado rápido y la **Contraseña Asignada**.
+   * Un botón para descargar el archivo cifrado `<nombre_original>.enc`.
 
 ---
 
-### B. Portal Público de Solicitud de Contraseña (`http://localhost:8000/`)
-1. El usuario final o destinatario entra a `http://localhost:8000/`.
+### B. Portal Público de Solicitud de Contraseña (`http://localhost:8000/freedec/`)
+1. El usuario final o destinatario entra a `http://localhost:8000/freedec/`.
 2. Sube su copia del documento (bien el archivo original o el archivo `.enc` que le facilitaron).
 3. Pega el código de acceso facilitado por el emisor.
 4. Escribe su correo electrónico registrado en la lista de autorización.
 5. Pulsa **Solicitar Contraseña**.
-6. **Resultado**: La web mostrará un mensaje de confirmación neutro (anti-enumeración de usuarios) y, si los datos son legítimos y el correo está autorizado, el sistema enviará de inmediato la contraseña a su buzón.
+6. **Resultado**: La web mostrará un mensaje de confirmación neutro (anti-enumeración de usuarios). Si los datos son legítimos y el correo está autorizado:
+   * El sistema enviará de inmediato la contraseña al correo del destinatario, **especificando explícitamente el nombre del documento** al que corresponde la clave y un enlace directo a la pestaña de descifrado.
+   * El sistema registra el acceso en la tabla de auditoría (`DocumentAccessLog`), actualizando el contador `access_count`, la fecha de último acceso y la IP del solicitante.
 
 ---
 
-### C. Portal Público de Descifrado de Archivos `.enc` (`http://localhost:8000/descifrar/`)
+### C. Portal Público de Descifrado de Archivos `.enc` (`http://localhost:8000/freedec/descifrar/`)
 *¿Cómo se pasa del archivo `.enc` al documento original descifrado?*
-1. El usuario abre `http://localhost:8000/descifrar/` (o pulsa **🔓 Descifrar Archivo (.enc)** en la barra de navegación).
+1. El usuario abre `http://localhost:8000/freedec/descifrar/` (o pulsa **🔓 Descifrar Archivo (.enc)** en la barra de navegación).
 2. Sube el archivo `.enc`.
 3. Pega la contraseña que acaba de recibir en su correo electrónico.
 4. Pulsa **Descifrar y Descargar Archivo Original**.
@@ -323,7 +328,33 @@ Una vez acoplado, tendrás dos portales web accesibles desde cualquier navegador
 
 ---
 
-### D. Descifrado por Terminal (Línea de Comandos CLI)
+### D. Eliminación de Documentos y Borrado Físico en Disco (Derecho al Olvido / GDPR)
+Al eliminar un documento registrado:
+* **Señal `post_delete` automática**: Al borrar un documento desde el panel de Django Admin o el ORM, se elimina automáticamente su archivo físico `.enc` asociado en disco para evitar archivos confidenciales huérfanos.
+* **Botón directo en Django Admin**: La tabla de documentos en `/admin/freedec/encrypteddocument/` dispone de un botón directo `🗑️ Eliminar` por cada fila.
+* **Comando CLI de borrado**:
+  ```bash
+  # Listar documentos existentes
+  poetry run python manage.py delete_document --list
+
+  # Eliminar un documento específico por nombre o hash
+  poetry run python manage.py delete_document balance_anual.pdf
+
+  # Eliminar todos los registros y archivos físicos (.enc)
+  poetry run python manage.py delete_document --all
+  ```
+
+---
+
+### E. Compatibilidad con Despliegues en Apache (Múltiples Apps en el Mismo Dominio)
+Freedec está diseñado específicamente para convivir con otras aplicaciones en el mismo servidor Apache:
+* **Espacio de nombres aislado**: Todas las rutas cuelgan de `/freedec/` (ej. `http://dominio.com/freedec/`), sin invadir la raíz `/` ni rutas genéricas.
+* **Resolución dinámica con SCRIPT_NAME**: En las plantillas HTML se usa `{% url 'freedec:gui-public-request' %}` y `{% url 'freedec:gui-public-decrypt' %}`, adaptándose automáticamente a subcarpetas como `WSGIScriptAlias /freedec` o `ProxyPass`.
+* **Admin Desacoplado**: Los recibos y enlaces al panel de administración se resuelven dinámicamente mediante `reverse('admin:index')`, respetando la URL exacta que tu proyecto tenga configurada para Django Admin.
+
+---
+
+### F. Descifrado por Terminal (Línea de Comandos CLI)
 Para administradores, scripts o usuarios avanzados:
 ```bash
 poetry run python manage.py decrypt_document ruta/al/archivo.enc --password "TuContraseña" --output documento_recuperado.pdf
@@ -541,11 +572,14 @@ poetry run python manage.py runserver 8000
 ```
 
 ### Step 4: Open the Web GUI in Your Browser
-* **Public Recovery Portal**: Open [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) in your browser.
+* **Public Password Request Portal**: Open [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) in your browser.
+* **Public Document Decryption Portal (.enc)**: Open [http://127.0.0.1:8000/freedec/descifrar/](http://127.0.0.1:8000/freedec/descifrar/) in your browser.
 * **Admin Upload Portal**: Log in at [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (`admin` / `admin123`) and navigate to [http://127.0.0.1:8000/freedec/admin-upload/](http://127.0.0.1:8000/freedec/admin-upload/).
 
 > [!TIP]
-> In this staging sandbox mode, **emails with recovered passwords are printed directly in the server console**, allowing you to inspect recovered keys without configuring SMTP servers.
+> **Clear Settings & Local Testing Presetting**: The application runs directly without requiring a `.env` file.
+> - `config/settings.py`: Provides the **generic setting** in plain clear Python (zero `.env` dependency and no private hardcoded credentials).
+> - `config/presettings.py`: Holds the local test presetting with staging database and real SMTP (**Ethereal Email**) to inspect dispatched emails in real time at [https://ethereal.email/messages](https://ethereal.email/messages) by running `python manage.py runserver --settings=config.presettings`.
 
 ### Step 5: Run Automated CLI Demo (Optional)
 In another terminal:
@@ -704,38 +738,69 @@ poetry run python manage.py runserver
 
 ## 6. How the Web GUI Works and How to Use It
 
-### A. Admin Upload Portal (`http://localhost:8000/freedec/admin-upload/`)
-1. Log in first at `/admin/`.
-2. Go to `/freedec/admin-upload/`.
-3. Select your document (**PDF, LibreOffice .odt/.ods, or MS Office .docx/.xlsx**).
-4. Enter the decryption password.
-5. Enter authorized emails separated by commas (e.g. `auditor@corp.com, director@corp.com`).
-6. Click **Encrypt and Register**.
-7. **Result**: A credential card displays the **SHA-256 hash**, the **access code** with one-click copy, and a download button for the encrypted file.
+### A. Admin Upload Portal (`http://localhost:8000/freedec/admin-upload/` or Django Admin)
+1. Log in first at `/admin/` (or your project's configured Django admin URL).
+2. You can register documents either from `/admin/` (**Encrypted Documents -> Add**) or from `/freedec/admin-upload/`.
+3. Select your document in an authorized format (**PDF, LibreOffice .odt/.ods, or MS Office .docx/.xlsx**).
+4. Optionally enter a custom decryption password, or leave it blank to automatically generate a cryptographically strong 24-character password.
+5. Enter authorized recipient emails (interactive `+` button available to add multiple addresses).
+6. Click **Encrypt and Register** (or **Save** in Django Admin).
+7. **Result**:
+   * **Automatic Credentials Receipt Download**: The browser immediately downloads `<original_filename>_credenciales.txt` containing the SHA-256 hash, secret access code, assigned password, authorized emails, and direct access links, allowing local storage without server plaintext persistence.
+   * The screen displays the **Access Code (`access_code`)** with quick-copy button and the **Assigned Password**.
+   * A direct download button for the encrypted file `<original_filename>.enc`.
 
 ---
 
-### B. Public Password Request Portal (`http://localhost:8000/`)
-1. The user navigates to `http://localhost:8000/`.
-2. Uploads their file (either original document or `.enc` encrypted file).
-3. Pastes the secret access code provided by the administrator.
-4. Enters their registered email address.
+### B. Public Password Request Portal (`http://localhost:8000/freedec/`)
+1. The user navigates to `http://localhost:8000/freedec/`.
+2. Uploads their file copy (either the original file or the `.enc` encrypted container).
+3. Pastes the secret access code provided by the issuer.
+4. Enters their authorized email address.
 5. Clicks **Request Password**.
-6. **Result**: A safe confirmation message appears and, if authorized, the decryption password is sent to their inbox.
+6. **Result**: A uniform, neutral confirmation message is displayed (preventing user or document enumeration). If the data matches and the email is authorized:
+   * The system immediately emails the password to the recipient, **explicitly citing the document name** and a direct link to the decryption portal.
+   * The access event is recorded in the `DocumentAccessLog` audit table, incrementing `access_count` and recording the last access timestamp and client IP.
 
 ---
 
-### C. Public Document Decryption Portal (`http://localhost:8000/descifrar/`)
+### C. Public Document Decryption Portal (`http://localhost:8000/freedec/descifrar/`)
 *How to turn the `.enc` file back into the original document?*
-1. The user navigates to `http://localhost:8000/descifrar/` (or clicks **🔓 Descifrar Archivo (.enc)** in the navbar).
+1. The user navigates to `http://localhost:8000/freedec/descifrar/` (or clicks **🔓 Descifrar Archivo (.enc)** in the navbar).
 2. Uploads the `.enc` file.
 3. Pastes the password received in their email.
 4. Clicks **Descifrar y Descargar Archivo Original**.
-5. **Result**: The system decrypts the container in memory with Fernet and triggers an instant download of the original file with its correct extension (`document.pdf`, `contract.docx`, etc.).
+5. **Result**: The system decrypts the container in memory with Fernet and triggers an instant download of the original file with its exact name and extension (`document.pdf`, `contract.docx`, etc.).
 
 ---
 
-### D. Command Line Decryption (CLI)
+### D. Document Deletion & Physical Disk Erasure (Right to Erasure / GDPR)
+When deleting a registered document:
+* **Automated `post_delete` Signal**: Deleting a record via Django Admin or ORM triggers automatic unlinking and physical deletion of the `.enc` file in `MEDIA_ROOT`.
+* **Direct Admin Button**: The document table at `/admin/freedec/encrypteddocument/` provides an inline `🗑️ Eliminar` button on each row.
+* **CLI Management Command**:
+  ```bash
+  # List existing documents
+  poetry run python manage.py delete_document --list
+
+  # Delete a specific document by name or hash
+  poetry run python manage.py delete_document balance_anual.pdf
+
+  # Delete all database records and physical (.enc) files
+  poetry run python manage.py delete_document --all
+  ```
+
+---
+
+### E. Apache Deployment & Multi-App Compatibility (Same Domain)
+Freedec is engineered to run seamlessly alongside other applications on the same Apache server:
+* **Isolated Namespace**: All routes reside under `/freedec/` (e.g. `http://domain.com/freedec/`), avoiding conflicts with the root domain `/` or other apps.
+* **Dynamic Resolution with SCRIPT_NAME**: HTML templates use `{% url 'freedec:gui-public-request' %}` and `{% url 'freedec:gui-public-decrypt' %}`, adapting dynamically to subfolders (`WSGIScriptAlias /freedec` or `ProxyPass`).
+* **Decoupled Admin Integration**: Receipts and links to Django admin dynamically use `reverse('admin:index')`, respecting whatever admin URL the host project defines.
+
+---
+
+### F. Command Line Decryption (CLI)
 For system administrators, automated pipelines, or offline recovery:
 ```bash
 poetry run python manage.py decrypt_document path/to/file.enc --password "YourPassword" --output recovered_document.pdf

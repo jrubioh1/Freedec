@@ -2,6 +2,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.views import View
 
 from freedec.forms import (
@@ -76,6 +77,8 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
             encrypted_url = request.build_absolute_uri(document.encrypted_file.url)
 
         import urllib.parse
+        url_request = request.build_absolute_uri(reverse("freedec:gui-public-request"))
+        url_decrypt = request.build_absolute_uri(reverse("freedec:gui-public-decrypt"))
         txt_filename = f"{document.original_filename}_credenciales.txt"
         creds_text = (
             "================================================================================\n"
@@ -102,8 +105,8 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
             "--------------------------------------------------------------------------------\n"
             "4. PORTALES DE ACCESO:\n"
             "--------------------------------------------------------------------------------\n"
-            "- Solicitar Contraseña:  http://127.0.0.1:8000/\n"
-            "- Descifrar Archivo:     http://127.0.0.1:8000/descifrar/\n"
+            f"- Solicitar Contraseña:  {url_request}\n"
+            f"- Descifrar Archivo:     {url_decrypt}\n"
             "================================================================================\n"
         )
         txt_data_uri = f"data:text/plain;charset=utf-8,{urllib.parse.quote(creds_text)}"
@@ -150,11 +153,13 @@ class PublicRequestGuiView(View):
         email = form.cleaned_data["email"]
 
         service = DocumentManagementService()
+        decrypt_url = request.build_absolute_uri(reverse("freedec:gui-public-decrypt"))
         success, message = service.verify_and_dispatch_password(
             uploaded_file=uploaded_file,
             access_code=access_code,
             recipient_email=email,
             client_ip=get_client_ip(request),
+            decrypt_url=decrypt_url,
         )
 
         context = {

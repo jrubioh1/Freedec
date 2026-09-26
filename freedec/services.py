@@ -292,6 +292,7 @@ class DocumentManagementService:
         access_code: str,
         recipient_email: str,
         client_ip: Optional[str] = None,
+        decrypt_url: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Flujo de verificación pública y envío automatizado de la clave descifrada.
@@ -412,6 +413,14 @@ class DocumentManagementService:
         # 6. Envío exclusivo y automatizado de la clave mediante django.core.mail
         doc_display_name = document.original_filename or f"Documento_{calculated_hash[:8]}"
         subject = f"[Freedec] Clave de recuperación para su documento: {doc_display_name}"
+        target_decrypt_url = decrypt_url or getattr(settings, "FREEDEC_PUBLIC_DECRYPT_URL", None)
+        if not target_decrypt_url:
+            try:
+                from django.urls import reverse
+                target_decrypt_url = reverse("freedec:gui-public-decrypt")
+            except Exception:
+                target_decrypt_url = "/freedec/descifrar/"
+
         message_body = (
             f"Estimado usuario,\n\n"
             f"Se ha verificado con éxito su documento y su autorización de acceso.\n\n"
@@ -422,7 +431,7 @@ class DocumentManagementService:
             f"--------------------------------------------------\n\n"
             f"Para descifrar su archivo '{doc_display_name}.enc' y recuperar el documento original sin cifrar, "
             f"puede acceder al portal público en la pestaña 'Descifrar Archivo (.enc)':\n"
-            f"http://127.0.0.1:8000/descifrar/\n\n"
+            f"{target_decrypt_url}\n\n"
             f"Por motivos de seguridad, no comparta esta clave con terceros.\n\n"
             f"Atentamente,\n"
             f"Sistema Automatizado Freedec"

@@ -83,7 +83,7 @@ def main():
     # PRUEBA OWASP A03/A08: Rechazo de Formato No Autorizado (.exe)
     # --------------------------------------------------------------------------
     print_step("PRUEBA PREVIA: Intentar subir formato malicioso/no permitido (.exe)")
-    upload_url = f"{BASE_URL}/api/freedec/admin/upload/"
+    upload_url = f"{BASE_URL}/freedec/api/admin/upload/"
     auth_header = base64.b64encode(f"{ADMIN_USER}:{ADMIN_PASS}".encode()).decode()
 
     malicious_body, malicious_headers = encode_multipart_formdata(
@@ -107,7 +107,7 @@ def main():
     # --------------------------------------------------------------------------
     # PASO 1: Subida de Documento PDF Válido por el Administrador
     # --------------------------------------------------------------------------
-    print_step("PASO 1: Administrador sube y cifra documento PDF (/api/freedec/admin/upload/)")
+    print_step("PASO 1: Administrador sube y cifra documento PDF (/freedec/api/admin/upload/)")
     plain_password = "ClaveUltraSegura#2026_Audit!"
     allowed_emails = ["auditor@seguridad.local", "jorge@freedec.local"]
 
@@ -147,11 +147,11 @@ def main():
     # --------------------------------------------------------------------------
     # PASO 2: Usuario Público Solicita Contraseña con Datos Válidos
     # --------------------------------------------------------------------------
-    print_step("PASO 2: Solicitud Pública Válida (/api/freedec/public/request-password/)")
+    print_step("PASO 2: Solicitud Pública Válida (/freedec/api/public/request-password/)")
     print(f"Solicitante: auditor@seguridad.local")
     print(f"Enviando archivo PDF original + access_code...")
 
-    public_url = f"{BASE_URL}/api/freedec/public/request-password/"
+    public_url = f"{BASE_URL}/freedec/api/public/request-password/"
     public_fields = {
         "access_code": access_code,
         "email": "auditor@seguridad.local",

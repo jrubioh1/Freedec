@@ -338,13 +338,13 @@
 <body>
     <header>
         <nav class="navbar">
-            <a href="/" class="brand">
+            <a href="{% url 'freedec:gui-public-request' %}" class="brand">
                 <div class="brand-icon">F</div>
                 <span>Freedec</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">🔑 Solicitar Contraseña</a>
-                <a href="/descifrar/" class="nav-link">🔓 Descifrar Archivo (.enc)</a>
+                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">🔑 Solicitar Contraseña</a>
+                <a href="{% url 'freedec:gui-public-decrypt' %}" class="nav-link">🔓 Descifrar Archivo (.enc)</a>
                 <span class="badge badge-emerald" style="padding: 0.4rem 0.85rem; font-size: 0.8rem;">
                     🛡️ Portal Seguro
                 </span>

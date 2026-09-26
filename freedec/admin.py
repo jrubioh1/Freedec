@@ -381,9 +381,9 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 "--------------------------------------------------------------------------------\n"
                 "4. PORTALES DE ACCESO:\n"
                 "--------------------------------------------------------------------------------\n"
-                "- Solicitar Contraseña:  http://127.0.0.1:8000/\n"
-                "- Descifrar Archivo:     http://127.0.0.1:8000/descifrar/\n"
-                "- Panel de Control:      http://127.0.0.1:8000/admin/\n"
+                f"- Solicitar Contraseña:  {request.build_absolute_uri(reverse('freedec:gui-public-request'))}\n"
+                f"- Descifrar Archivo:     {request.build_absolute_uri(reverse('freedec:gui-public-decrypt'))}\n"
+                f"- Panel de Control:      {request.build_absolute_uri(reverse('admin:index'))}\n"
                 "================================================================================\n"
             )
             txt_filename = f"{obj.original_filename}_credenciales.txt"

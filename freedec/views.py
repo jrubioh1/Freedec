@@ -1,5 +1,6 @@
 import logging
 from django.core.exceptions import ValidationError
+from django.urls import reverse
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -114,11 +115,13 @@ class PublicPasswordRequestView(APIView):
             ip = ip.split(",")[0].strip()
 
         service = DocumentManagementService()
+        decrypt_url = request.build_absolute_uri(reverse("freedec:gui-public-decrypt"))
         success, message = service.verify_and_dispatch_password(
             uploaded_file=uploaded_file,
             access_code=access_code,
             recipient_email=email,
             client_ip=ip,
+            decrypt_url=decrypt_url,
         )
 
         # Si ocurrió un error de infraestructura de correo o error de configuración
