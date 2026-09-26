@@ -1,107 +1,10 @@
-import json
 from django.conf import settings
 from rest_framework import serializers
 
-from freedec.validators import (
-    normalize_and_validate_email_list,
-    validate_document_file,
-    validate_safe_email,
-)
+from freedec.validators import validate_document_file, validate_safe_email
 
 DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024
 
-
-class AdminDocumentUploadSerializer(serializers.Serializer):
-    """
-    Serializador para la subida inicial, cifrado y registro del documento por parte del administrador.
-    
-    Campos de entrada:
-    - original_file: Archivo binario (PDF, LibreOffice o Microsoft Office).
-    - plain_password: Clave de descifrado en texto plano que será cifrada antes de almacenarse.
-    - allowed_emails: Lista de correos autorizados a recibir la contraseña.
-    """
-
-    original_file = serializers.FileField(
-        required=True,
-        help_text="Archivo original en formato PDF, LibreOffice o Microsoft Office.",
-    )
-    plain_password = serializers.CharField(
-        write_only=True,
-        required=False,
-        allow_blank=True,
-        trim_whitespace=False,
-        help_text="Contraseña en texto plano para cifrar. Si se omite, se generará una automáticamente.",
-    )
-    allowed_emails = serializers.ListField(
-        child=serializers.CharField(),
-        allow_empty=False,
-        required=True,
-        help_text="Lista de correos autorizados a solicitar la clave de recuperación.",
-    )
-
-    def to_internal_value(self, data):
-        """
-        Soporte robusto para Multipart Form-Data y JSON:
-        Si 'allowed_emails' se envía como QueryDict con múltiples campos, lista nativa,
-        cadena JSON, valores separados por comas o representación literal,
-        se deserializa y normaliza limpiamente.
-        """
-        mutable_data = data.copy() if hasattr(data, "copy") else dict(data)
-
-        if hasattr(data, "getlist"):
-            raw_list = data.getlist("allowed_emails")
-            if len(raw_list) > 1:
-                raw_emails = raw_list
-            elif len(raw_list) == 1:
-                raw_emails = raw_list[0]
-            else:
-                raw_emails = mutable_data.get("allowed_emails")
-        else:
-            raw_emails = mutable_data.get("allowed_emails")
-
-        if raw_emails is not None:
-            try:
-                normalized = normalize_and_validate_email_list(raw_emails)
-                if hasattr(mutable_data, "setlist"):
-                    mutable_data.setlist("allowed_emails", normalized)
-                else:
-                    mutable_data["allowed_emails"] = normalized
-            except Exception:
-                # Se delega a la validación estándar del serializador para emitir mensajes adecuados
-                pass
-
-        return super().to_internal_value(mutable_data)
-
-    def validate_original_file(self, value):
-        """
-        Valida que el archivo no esté vacío, respete el límite de tamaño
-        y corresponda a un formato permitido (PDF, LibreOffice, MS Office)
-        mediante inspección de Magic Bytes y estructura interna.
-        """
-        max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
-        if value.size <= 0:
-            raise serializers.ValidationError("El archivo no puede estar vacío.")
-        if value.size > max_size:
-            raise serializers.ValidationError(
-                f"El archivo excede el tamaño máximo permitido de {max_size // (1024 * 1024)} MB."
-            )
-
-        # Validación criptográfica y estructural de formato (OWASP A03 / A08)
-        try:
-            return validate_document_file(value)
-        except Exception as exc:
-            raise serializers.ValidationError(str(exc))
-
-    def validate_allowed_emails(self, value):
-        """
-        Valida, desinfecta contra CRLF y normaliza en minúsculas todas las
-        direcciones de correo electrónico autorizadas.
-        """
-        try:
-            return normalize_and_validate_email_list(value)
-        except Exception as exc:
-            msg = getattr(exc, "message", str(exc))
-            raise serializers.ValidationError(msg)
 
 
 class PublicPasswordRequestSerializer(serializers.Serializer):

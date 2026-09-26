@@ -1,12 +1,11 @@
 from django.urls import path
 
 from freedec.gui_views import (
-    AdminUploadGuiView,
     PublicDecryptGuiView,
     PublicRequestGuiView,
     set_language_view,
 )
-from freedec.views import AdminDocumentUploadView, PublicPasswordRequestView
+from freedec.views import PublicPasswordRequestView
 
 app_name = "freedec"
 
@@ -32,26 +31,9 @@ urlpatterns = [
         PublicDecryptGuiView.as_view(),
         name="gui-public-decrypt",
     ),
-    # Portal administrativo web para subida y cifrado (requiere autenticación)
-    path(
-        "admin-upload/",
-        AdminUploadGuiView.as_view(),
-        name="gui-admin-upload",
-    ),
     # ==========================================================================
     # ENDPOINTS DE LA API REST (DRF)
     # ==========================================================================
-    # Endpoint administrativo protegido para subida, cálculo SHA-256 y cifrado
-    path(
-        "admin/upload/",
-        AdminDocumentUploadView.as_view(),
-        name="admin-upload",
-    ),
-    path(
-        "api/admin/upload/",
-        AdminDocumentUploadView.as_view(),
-        name="api-admin-upload",
-    ),
     # Endpoint público con rate limiting para verificación de hash y despacho
     path(
         "public/request-password/",

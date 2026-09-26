@@ -145,7 +145,7 @@ Para cumplir con el **Derecho al Olvido (RGPD / GDPR)** y prevenir archivos hué
 ## 5. Recibos de Credenciales y Portal de Descifrado
 
 1. **Recibo Descargable `.txt`**:
-   - Al registrar un documento (tanto en Django Admin como en `/freedec/admin-upload/`), el navegador descarga automáticamente un archivo de texto plano (`<original_filename>_credenciales.txt`) que contiene el hash, el código de acceso, la contraseña asignada, los correos autorizados y los enlaces directos.
+   - Al registrar un documento en Django Admin, el navegador descarga automáticamente un archivo de texto plano (`<original_filename>_credenciales.txt`) que contiene el hash, el código de acceso, la contraseña asignada, los correos autorizados y los enlaces directos.
    - Se genera en memoria mediante un `data:text/plain;charset=utf-8` Data URI sin almacenar ficheros en texto claro en el servidor.
 2. **Portal de Descifrado `/freedec/descifrar/`**:
    - Permite al usuario final subir su archivo `.enc` y su contraseña recibida por correo para descargar en el acto el documento original descifrado.
@@ -297,7 +297,7 @@ To adhere to the **Right to Erasure (GDPR)** and prevent orphaned confidential f
 ## 5. Credential Receipts & Decryption Portal
 
 1. **Downloadable `.txt` Credentials Receipt**:
-   - On document registration (in both Django Admin and `/freedec/admin-upload/`), the browser automatically downloads `<original_filename>_credenciales.txt` containing the file hash, access code, password, authorized emails, and direct portal links.
+   - On document registration in Django Admin, the browser automatically downloads `<original_filename>_credenciales.txt` containing the file hash, access code, password, authorized emails, and direct portal links.
    - Generated client-side using `data:text/plain;charset=utf-8` Data URIs without storing plaintext credentials on the server.
 2. **Decryption Portal `/freedec/descifrar/`**:
    - Allows users to upload their `.enc` file and enter their emailed password to instantly download the decrypted original document.

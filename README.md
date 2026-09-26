@@ -99,7 +99,7 @@ poetry run python manage.py runserver 8000
 ### Paso 4: Probar la Interfaz Gráfica en tu Navegador
 * **Portal Público de Recuperación**: Abre [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) en tu navegador.
 * **Portal Público de Descifrado (.enc)**: Abre [http://127.0.0.1:8000/freedec/descifrar/](http://127.0.0.1:8000/freedec/descifrar/) en tu navegador.
-* **Portal de Subida de Administrador**: Inicia sesión en [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (usuario `admin`, contraseña `admin123`) y entra a [http://127.0.0.1:8000/freedec/admin-upload/](http://127.0.0.1:8000/freedec/admin-upload/).
+* **Panel de Administrador (Django Admin)**: Inicia sesión en [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (usuario `admin`, contraseña `admin123`) para cifrar y registrar documentos desde el menú **Documentos Cifrados -> Añadir**.
 
 > [!TIP]
 > **Configuración en claro y Presetting de Pruebas**: El proyecto funciona directamente sin necesidad de archivo `.env`.
@@ -292,16 +292,16 @@ poetry run python manage.py runserver
 
 Una vez acoplado, tendrás los portales web accesibles desde cualquier navegador:
 
-### A. Portal de Administración (`http://localhost:8000/freedec/admin-upload/` o Django Admin)
-1. Inicia sesión primero con tu cuenta de administrador en `/admin/` (o la ruta de admin de tu proyecto).
-2. Puedes registrar documentos desde `/admin/` (menú **Documentos Cifrados -> Añadir**) o desde la interfaz `/freedec/admin-upload/`.
+### A. Panel de Administración (Django Admin - `http://localhost:8000/admin/`)
+1. Inicia sesión con tu cuenta de administrador en `/admin/` (o la ruta de admin de tu proyecto).
+2. Entra al menú **Documentos Cifrados -> Añadir Documento Cifrado**.
 3. Selecciona tu documento en formato permitido (**PDF, LibreOffice .odt/.ods o Microsoft Office .docx/.xlsx**).
 4. Opcionalmente escribe una contraseña personalizada o déjalo vacío para que el sistema genere una automáticamente con alta entropía criptográfica (24 caracteres).
-5. Escribe las direcciones de correo autorizadas (puedes pulsar el botón `+` para añadir múltiples destinatarios de forma interactiva).
-6. Pulsa **Cifrar y Registrar** (o **Guardar** en el Admin).
+5. Escribe las direcciones de correo autorizadas (usa el botón `➕ Añadir otro correo` para agregar destinatarios de forma interactiva).
+6. Pulsa **Guardar**.
 7. **Resultado**:
    * **Descarga Automática de Recibo de Credenciales**: El navegador descargará al instante un archivo de texto `<nombre_original>_credenciales.txt` con el hash SHA-256, código secreto de acceso, contraseña y enlaces directos, para que el administrador pueda guardarlo de forma local sin que quede expuesto en claro en el servidor.
-   * La pantalla mostrará el **Código de Acceso (`access_code`)** con botón de copiado rápido y la **Contraseña Asignada**.
+   * La pantalla mostrará el **Código Secreto de Acceso (`access_code`)** con botón de copiado rápido y la **Contraseña Asignada**.
    * Un botón para descargar el archivo cifrado `<nombre_original>.enc`.
 
 ---
@@ -574,7 +574,7 @@ poetry run python manage.py runserver 8000
 ### Step 4: Open the Web GUI in Your Browser
 * **Public Password Request Portal**: Open [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) in your browser.
 * **Public Document Decryption Portal (.enc)**: Open [http://127.0.0.1:8000/freedec/descifrar/](http://127.0.0.1:8000/freedec/descifrar/) in your browser.
-* **Admin Upload Portal**: Log in at [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (`admin` / `admin123`) and navigate to [http://127.0.0.1:8000/freedec/admin-upload/](http://127.0.0.1:8000/freedec/admin-upload/).
+* **Admin Panel (Django Admin)**: Log in at [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (`admin` / `admin123`) to encrypt and register documents under **Encrypted Documents -> Add**.
 
 > [!TIP]
 > **Clear Settings & Local Testing Presetting**: The application runs directly without requiring a `.env` file.
@@ -738,16 +738,16 @@ poetry run python manage.py runserver
 
 ## 6. How the Web GUI Works and How to Use It
 
-### A. Admin Upload Portal (`http://localhost:8000/freedec/admin-upload/` or Django Admin)
-1. Log in first at `/admin/` (or your project's configured Django admin URL).
-2. You can register documents either from `/admin/` (**Encrypted Documents -> Add**) or from `/freedec/admin-upload/`.
+### A. Admin Panel (Django Admin - `http://localhost:8000/admin/`)
+1. Log in at `/admin/` (or your project's configured Django admin URL) with an administrator account.
+2. Navigate to **Encrypted Documents -> Add Encrypted Document**.
 3. Select your document in an authorized format (**PDF, LibreOffice .odt/.ods, or MS Office .docx/.xlsx**).
 4. Optionally enter a custom decryption password, or leave it blank to automatically generate a cryptographically strong 24-character password.
-5. Enter authorized recipient emails (interactive `+` button available to add multiple addresses).
-6. Click **Encrypt and Register** (or **Save** in Django Admin).
+5. Enter authorized recipient emails (interactive `➕ Add another email` button available).
+6. Click **Save**.
 7. **Result**:
    * **Automatic Credentials Receipt Download**: The browser immediately downloads `<original_filename>_credenciales.txt` containing the SHA-256 hash, secret access code, assigned password, authorized emails, and direct access links, allowing local storage without server plaintext persistence.
-   * The screen displays the **Access Code (`access_code`)** with quick-copy button and the **Assigned Password**.
+   * The screen displays the secret **Access Code (`access_code`)** with quick-copy button and the **Assigned Password**.
    * A direct download button for the encrypted file `<original_filename>.enc`.
 
 ---

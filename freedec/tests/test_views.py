@@ -44,75 +44,41 @@ class FreedecViewsAPITestCase(APITestCase):
         super().tearDownClass()
 
     def setUp(self):
-        self.admin_user = User.objects.create_user(
+        self.admin_user = User.objects.create_superuser(
             username="admin_sec",
             email="admin@freedec.local",
             password="StrongAdminPassword#2026",
         )
-        self.upload_url = reverse("freedec:admin-upload")
+        self.django_admin_add_url = reverse("admin:freedec_encrypteddocument_add")
         self.public_request_url = reverse("freedec:public-request-password")
         self.gui_public_url = reverse("freedec:gui-public-request")
-        self.gui_admin_url = reverse("freedec:gui-admin-upload")
         self.gui_decrypt_url = reverse("freedec:gui-public-decrypt")
         self.sample_bytes = MINIMAL_VALID_PDF
         self.expected_hash = hashlib.sha256(self.sample_bytes).hexdigest()
 
     # --------------------------------------------------------------------------
-    # PRUEBAS DE LA API REST (DRF)
+    # PRUEBAS DEL PANEL DE ADMINISTRACIÓN DE DJANGO (ADMIN)
     # --------------------------------------------------------------------------
-    def test_admin_upload_unauthenticated_fails(self):
-        """Un usuario anónimo debe ser rechazado en la API REST de subida."""
-        file_data = SimpleUploadedFile("report.pdf", self.sample_bytes)
-        response = self.client.post(
-            self.upload_url,
-            {
-                "original_file": file_data,
-                "plain_password": "PlainSecretPassword123!",
-                "allowed_emails": "audit@corp.com",
-            },
-            format="multipart",
-        )
-        self.assertIn(
-            response.status_code,
-            [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN],
-        )
-
-    def test_admin_upload_rejects_unauthorized_format(self):
-        """Un formato no autorizado (ej. .txt o .exe) debe ser rechazado con 400 Bad Request."""
-        self.client.force_authenticate(user=self.admin_user)
-        file_data = SimpleUploadedFile("script.sh", b"#!/bin/bash\necho hello")
-        response = self.client.post(
-            self.upload_url,
-            {
-                "original_file": file_data,
-                "plain_password": "StrongSecretPassword#888",
-                "allowed_emails": ["auditor@corp.com"],
-            },
-            format="multipart",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("original_file", response.json())
+    def test_admin_upload_unauthenticated_redirects(self):
+        """Un usuario anónimo debe ser redirigido al login al intentar acceder al admin."""
+        response = self.client.get(self.django_admin_add_url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/admin/login/", response.url)
 
     def test_admin_upload_authenticated_success(self):
-        """Un administrador autenticado sube el documento PDF, recibe hash y access_code."""
-        self.client.force_authenticate(user=self.admin_user)
+        """Un administrador autenticado sube el documento PDF vía Django Admin y se cifra."""
+        self.client.force_login(self.admin_user)
         file_data = SimpleUploadedFile("report.pdf", self.sample_bytes)
         response = self.client.post(
-            self.upload_url,
+            self.django_admin_add_url,
             {
                 "original_file": file_data,
                 "plain_password": "StrongSecretPassword#888",
                 "allowed_emails": ["auditor1@corp.com", "director@corp.com"],
             },
-            format="multipart",
+            follow=True,
         )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(data["file_hash"], self.expected_hash)
-        self.assertIn("access_code", data)
-        self.assertTrue(len(data["access_code"]) > 20)
-        self.assertIn("encrypted_file_url", data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(EncryptedDocument.objects.filter(file_hash=self.expected_hash).exists())
 
     def test_public_request_password_endpoint(self):
@@ -149,49 +115,6 @@ class FreedecViewsAPITestCase(APITestCase):
         response = self.client.get(self.gui_public_url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Entrega Segura de Contraseña")
-
-    def test_gui_admin_upload_unauthenticated_redirects(self):
-        """El portal de subida web exige autenticación y redirige a login si no está autenticado."""
-        response = self.client.get(self.gui_admin_url)
-        self.assertEqual(response.status_code, 302)  # Redirección a login
-
-    def test_gui_admin_upload_authenticated_post(self):
-        """Un admin autenticado puede subir y cifrar archivos a través del formulario web."""
-        self.client.force_login(self.admin_user)
-        file_data = SimpleUploadedFile("gui_report.pdf", self.sample_bytes)
-        response = self.client.post(
-            self.gui_admin_url,
-            {
-                "original_file": file_data,
-                "plain_password": "WebGuiPassword#2026",
-                "allowed_emails": "webuser@corp.com, admin@corp.com",
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertContains(response, "Documento cifrado y registrado exitosamente", status_code=201)
-        self.assertContains(response, self.expected_hash, status_code=201)
-
-    def test_gui_admin_upload_multiple_email_fields(self):
-        """El formulario web procesa múltiples inputs dinámicos con name='allowed_emails'."""
-        self.client.force_login(self.admin_user)
-        file_data = SimpleUploadedFile("multi_email_report.pdf", self.sample_bytes)
-        # Simula el envío de múltiples campos input name="allowed_emails"
-        from django.http import QueryDict
-        qd = QueryDict(mutable=True)
-        qd.setlist("allowed_emails", ["auditor_a@corp.com", "auditor_b@corp.com"])
-        qd["plain_password"] = "SecretMultiPass#2026"
-        
-        post_data = qd.dict()
-        post_data["allowed_emails"] = qd.getlist("allowed_emails")
-        post_data["original_file"] = file_data
-
-        response = self.client.post(
-            self.gui_admin_url,
-            post_data,
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertContains(response, "auditor_a@corp.com", status_code=201)
-        self.assertContains(response, "auditor_b@corp.com", status_code=201)
 
     def test_gui_public_decrypt_get(self):
         """La vista web para descifrar carga correctamente con código 200."""

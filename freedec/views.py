@@ -1,87 +1,17 @@
 import logging
-from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.utils.translation import gettext as _
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
-from freedec.serializers import (
-    AdminDocumentUploadSerializer,
-    PublicPasswordRequestSerializer,
-)
+from freedec.serializers import PublicPasswordRequestSerializer
 from freedec.services import DocumentManagementService
 
 logger = logging.getLogger(__name__)
-
-
-class AdminDocumentUploadView(APIView):
-    """
-    Endpoint administrativo protegido para la subida y cifrado de documentos.
-    
-    Seguridad y Permisos:
-    - permission_classes = [IsAuthenticated]: Requiere autenticación activa en el proyecto Django.
-    - parser_classes = [MultiPartParser, FormParser]: Permite la recepción segura de archivos binarios.
-    
-    Respuesta:
-    - Retorna el hash SHA-256 del archivo (clave unívoca de identificación criptográfica).
-    - URL para la descarga del archivo cifrado.
-    - access_code en texto plano (generado con 256 bits de entropía). Esta es la ÚNICA vez
-      que se expone este código, ya que en base de datos se almacena su hash PBKDF2 (Zero-Knowledge).
-    """
-
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def post(self, request, *args, **kwargs):
-        serializer = AdminDocumentUploadSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        validated_data = serializer.validated_data
-        original_file = validated_data["original_file"]
-        plain_password = validated_data.get("plain_password") or None
-        allowed_emails = validated_data["allowed_emails"]
-
-        service = DocumentManagementService()
-
-        try:
-            document, raw_access_code = service.upload_and_encrypt_document(
-                original_file=original_file,
-                plain_password=plain_password,
-                allowed_emails=allowed_emails,
-            )
-        except ValidationError as exc:
-            return Response(
-                {"error": str(exc.message if hasattr(exc, "message") else exc)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Exception as exc:
-            logger.exception(f"[FREEDEC ERROR] Fallo inesperado al procesar subida de documento: {exc}")
-            return Response(
-                {"error": _("Ocurrió un error interno procesando y cifrando el documento.")},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        encrypted_file_url = None
-        if document.encrypted_file:
-            encrypted_file_url = request.build_absolute_uri(document.encrypted_file.url)
-
-        response_data = {
-            "status": "success",
-            "message": _("Documento cifrado y registrado exitosamente."),
-            "file_hash": document.file_hash,
-            "encrypted_file_url": encrypted_file_url,
-            "access_code": raw_access_code,
-            "generated_password": getattr(document, "generated_password", plain_password),
-            "allowed_emails": document.allowed_emails,
-            "created_at": document.created_at.isoformat(),
-        }
-
-        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class PublicPasswordRequestView(APIView):
