@@ -228,6 +228,11 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
     list_filter = ("created_at", "last_accessed_at")
     search_fields = ("original_filename", "file_hash", "last_accessed_by")
 
+    def get_inline_instances(self, request, obj=None):
+        if obj is None:
+            return []
+        return super().get_inline_instances(request, obj)
+
     def get_form(self, request, obj=None, **kwargs):
         if obj is None:
             return EncryptedDocumentAddForm

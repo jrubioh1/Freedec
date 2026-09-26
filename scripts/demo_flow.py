@@ -13,7 +13,7 @@ Valida:
    - Detección de archivos alterados (mismatch de hash SHA-256).
 """
 
-import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -22,6 +22,16 @@ import uuid
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+import django
+django.setup()
+
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
+from freedec.models import EncryptedDocument
+from freedec.services import DocumentManagementService
+from freedec.validators import validate_document_file
 
 BASE_URL = os.environ.get("FREEDEC_API_URL", "http://127.0.0.1:8000")
 ADMIN_USER = "admin"
@@ -75,6 +85,16 @@ def main():
     print_step("FREEDEC - DEMO INTERACTIVA DE STAGING (OWASP TOP 10 READY)")
     print(f"Conectando a: {BASE_URL}")
 
+    # Verificar conectividad con el servidor Django
+    try:
+        req = Request(f"{BASE_URL}/freedec/", method="GET")
+        with urlopen(req) as resp:
+            pass
+    except URLError as e:
+        print(f"✗ No se pudo conectar al servidor Django en {BASE_URL}: {e.reason}")
+        print("Asegúrate de haber iniciado el servidor con: 'poetry run python manage.py runserver'")
+        sys.exit(1)
+
     sample_file = Path("sample_document.pdf")
     sample_file.write_bytes(MINIMAL_VALID_PDF)
     file_bytes = sample_file.read_bytes()
@@ -82,67 +102,39 @@ def main():
     # --------------------------------------------------------------------------
     # PRUEBA OWASP A03/A08: Rechazo de Formato No Autorizado (.exe)
     # --------------------------------------------------------------------------
-    print_step("PRUEBA PREVIA: Intentar subir formato malicioso/no permitido (.exe)")
-    upload_url = f"{BASE_URL}/freedec/api/admin/upload/"
-    auth_header = base64.b64encode(f"{ADMIN_USER}:{ADMIN_PASS}".encode()).decode()
-
-    malicious_body, malicious_headers = encode_multipart_formdata(
-        {"plain_password": "Password123!", "allowed_emails": ["test@freedec.local"]},
-        {"original_file": ("malware.exe", b"MZ\x90\x00FakePEHeaderData")},
-    )
-    malicious_headers["Authorization"] = f"Basic {auth_header}"
-
+    print_step("PRUEBA PREVIA: Intentar procesar formato malicioso/no permitido (.exe)")
+    fake_exe = SimpleUploadedFile("malware.exe", b"MZ\x90\x00FakePEHeaderData")
     try:
-        req = Request(upload_url, data=malicious_body, headers=malicious_headers, method="POST")
-        with urlopen(req) as resp:
-            print("✗ ERROR: El servidor aceptó un archivo ejecutable!")
-    except HTTPError as e:
-        print(f"✓ ÉXITO OWASP: El servidor rechazó el formato .exe con HTTP {e.code}")
-        print(f"  Detalle: {e.read().decode('utf-8')[:120]}...")
-    except URLError as e:
-        print(f"✗ No se pudo conectar al servidor Django en {BASE_URL}: {e.reason}")
-        print("Asegúrate de haber iniciado el servidor con: 'poetry run python manage.py runserver'")
-        sys.exit(1)
+        validate_document_file(fake_exe)
+        print("✗ ERROR: El validador aceptó un archivo ejecutable!")
+    except ValidationError as e:
+        print(f"✓ ÉXITO OWASP: El validador rechazó el formato .exe correctamente.")
+        print(f"  Detalle: {e.messages}")
 
     # --------------------------------------------------------------------------
-    # PASO 1: Subida de Documento PDF Válido por el Administrador
+    # PASO 1: Subida de Documento PDF Válido por el Administrador (Django Admin / Service)
     # --------------------------------------------------------------------------
-    print_step("PASO 1: Administrador sube y cifra documento PDF (/freedec/api/admin/upload/)")
+    print_step("PASO 1: Administrador sube y cifra documento PDF (Django Admin / Service)")
     plain_password = "ClaveUltraSegura#2026_Audit!"
     allowed_emails = ["auditor@seguridad.local", "jorge@freedec.local"]
 
-    fields = {
-        "plain_password": plain_password,
-        "allowed_emails": allowed_emails,
-    }
-    files = {
-        "original_file": (sample_file.name, file_bytes),
-    }
+    # Si ya existía de una ejecución previa, lo eliminamos para asegurar prueba limpia
+    existing = EncryptedDocument.objects.filter(file_hash=hashlib.sha256(file_bytes).hexdigest()).first()
+    if existing:
+        existing.delete()
 
-    body, headers = encode_multipart_formdata(fields, files)
-    headers["Authorization"] = f"Basic {auth_header}"
-    req = Request(upload_url, data=body, headers=headers, method="POST")
-
-    try:
-        with urlopen(req) as resp:
-            status_code = resp.getcode()
-            response_data = json.loads(resp.read().decode("utf-8"))
-            print(f"✓ Estado HTTP: {status_code}")
-            print(f"✓ Hash SHA-256 (Identificador Criptográfico): {response_data['file_hash']}")
-            print(f"✓ URL Archivo Cifrado en disco: {response_data['encrypted_file_url']}")
-            print(f"✓ Código de Acceso Generado (Zero-Knowledge): {response_data['access_code']}")
-            print(f"✓ Correos autorizados (Normalizados): {response_data['allowed_emails']}")
-
-            access_code = response_data["access_code"]
-    except HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        if "Ya existe un documento registrado" in error_body:
-            print("! El documento ya había sido registrado anteriormente.")
-            print("Crea un PDF con variación para registrar uno nuevo.")
-            sys.exit(0)
-        else:
-            print(f"✗ Error HTTP {e.code}: {error_body}")
-            sys.exit(1)
+    service = DocumentManagementService()
+    uploaded_file = SimpleUploadedFile(sample_file.name, file_bytes)
+    doc, access_code = service.upload_and_encrypt_document(
+        original_file=uploaded_file,
+        plain_password=plain_password,
+        allowed_emails=allowed_emails,
+    )
+    print(f"✓ Documento registrado y cifrado en el sistema.")
+    print(f"✓ Hash SHA-256 (Identificador Criptográfico): {doc.file_hash}")
+    print(f"✓ Archivo Cifrado en disco: {doc.encrypted_file.path}")
+    print(f"✓ Código de Acceso Generado (Zero-Knowledge): {access_code}")
+    print(f"✓ Correos autorizados (Normalizados): {doc.allowed_emails}")
 
     # --------------------------------------------------------------------------
     # PASO 2: Usuario Público Solicita Contraseña con Datos Válidos

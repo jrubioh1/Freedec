@@ -20,16 +20,18 @@ Freedec implementa un patrón de **arquitectura orientada a servicios desacoplad
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Capa de Entrada (DRF Views / Web GUI)           │
-│   - AdminDocumentUploadView / AdminUploadGuiView (Auth Requerida)      │
+│               Capa de Entrada (Django Admin / DRF / Web GUI)           │
+│   - Django Admin (EncryptedDocumentAdmin - Auth Requerida / Gestión)   │
 │   - PublicPasswordRequestView / PublicRequestGuiView (Acceso Público)  │
+│   - PublicDecryptGuiView (Descifrado Web Público en Navegador)         │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Capa de Validación (Forms & Serializers)           │
-│   - AdminDocumentUploadSerializer / AdminDocumentUploadForm            │
+│   - EncryptedDocumentAddForm / EncryptedDocumentChangeForm (Admin)     │
 │   - PublicPasswordRequestSerializer / PublicPasswordRequestForm        │
+│   - PublicDecryptForm                                                  │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
@@ -53,13 +55,13 @@ Freedec implementa un patrón de **arquitectura orientada a servicios desacoplad
 
 ## 2. Diagramas de Flujo
 
-### 2.1. Subida y Cifrado (Administrador)
+### 2.1. Subida y Cifrado (Administrador en Django Admin)
 
 ```mermaid
 flowchart TD
-    A(["Inicio: Petición Admin GUI / API"]) --> B{"¿Usuario Autenticado?"}
-    B -- "No" --> C["Redirigir a Login o HTTP 401"]
-    B -- "Sí" --> D["Validar Formulario / Serializador"]
+    A(["Inicio: Subida en Django Admin"]) --> B{"¿Usuario Staff Autenticado?"}
+    B -- "No" --> C["Redirigir a Login de Django Admin"]
+    B -- "Sí" --> D["Validar Formulario (EncryptedDocumentAddForm)"]
     D --> E{"¿Formato y Magic Bytes Válidos?"}
     E -- "No" --> F["Retornar Error de Formato No Permitido"]
     E -- "Sí" --> G["calculate_file_sha256: Streaming 64 KB"]
@@ -72,7 +74,8 @@ flowchart TD
     M --> N["FernetCryptoService: Cifrar contraseña con Fernet"]
     N --> O["Normalizar emails a minúsculas anti-CRLF"]
     O --> P["Guardar EncryptedDocument en Base de Datos"]
-    P --> Q(["Retornar Éxito con file_hash, access_code y URL de descarga"])
+    P --> Q["Descarga automática de recibo .txt con credenciales"]
+    Q --> R(["Mostrar access_code y contraseña en pantalla de Django Admin"])
 ```
 
 ---
@@ -136,7 +139,7 @@ flowchart TD
 ## 4. Ciclo de Vida y Eliminación Física Segura
 
 Para cumplir con el **Derecho al Olvido (RGPD / GDPR)** y prevenir archivos huérfanos confidenciales en disco:
-1. **Señal `post_delete`**: Conectada a `EncryptedDocument` en [`models.py`](file:///home/jorge/GitHubRepositories/Freedec/freedec/models.py). Cuando un registro se elimina desde el Admin de Django, la API o el ORM, se elimina automáticamente el archivo físico (`.enc`) de `MEDIA_ROOT`.
+1. **Señal `post_delete`**: Conectada a `EncryptedDocument` en [`models.py`](file:///home/jorge/GitHubRepositories/Freedec/freedec/models.py). Cuando un registro se elimina desde el Admin de Django o el ORM, se elimina automáticamente el archivo físico (`.enc`) de `MEDIA_ROOT`.
 2. **Comando de Gestión CLI**: `python manage.py delete_document` permite listar o eliminar documentos específicos (o todos con `--all`) eliminando tanto el registro en BD como el archivo físico.
 3. **Botón en Django Admin**: La vista de lista en el panel administrativo incluye un botón directo `🗑️ Eliminar` por cada fila.
 
@@ -172,16 +175,18 @@ Freedec implements a **decoupled service-oriented pattern** inside the Django / 
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Ingress Layer (DRF Views / Web GUI)             │
-│   - AdminDocumentUploadView / AdminUploadGuiView (Auth Required)       │
+│               Ingress Layer (Django Admin / DRF / Web GUI)             │
+│   - Django Admin (EncryptedDocumentAdmin - Auth Required / Management) │
 │   - PublicPasswordRequestView / PublicRequestGuiView (Public Access)   │
+│   - PublicDecryptGuiView (Public In-Browser Decryption)                │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Validation Layer (Forms & Serializers)             │
-│   - AdminDocumentUploadSerializer / AdminDocumentUploadForm            │
+│   - EncryptedDocumentAddForm / EncryptedDocumentChangeForm (Admin)     │
 │   - PublicPasswordRequestSerializer / PublicPasswordRequestForm        │
+│   - PublicDecryptForm                                                  │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
@@ -205,13 +210,13 @@ Freedec implements a **decoupled service-oriented pattern** inside the Django / 
 
 ## 2. Flowcharts
 
-### 2.1. Admin Upload and Encryption Flow
+### 2.1. Admin Upload and Encryption Flow (Django Admin)
 
 ```mermaid
 flowchart TD
-    A(["Start: Admin GUI / API Request"]) --> B{"Authenticated User?"}
-    B -- "No" --> C["Redirect to Login or HTTP 401"]
-    B -- "Yes" --> D["Validate Form / Serializer"]
+    A(["Start: Django Admin Document Add"]) --> B{"Staff User Authenticated?"}
+    B -- "No" --> C["Redirect to Django Admin Login"]
+    B -- "Yes" --> D["Validate Form (EncryptedDocumentAddForm)"]
     D --> E{"Valid Format & Magic Bytes?"}
     E -- "No" --> F["Return Format Rejection Error"]
     E -- "Yes" --> G["calculate_file_sha256: 64 KB Chunked Streaming"]
@@ -224,7 +229,8 @@ flowchart TD
     M --> N["FernetCryptoService: Encrypt password with Fernet"]
     N --> O["Normalize emails to lowercase anti-CRLF"]
     O --> P["Persist EncryptedDocument to Database"]
-    P --> Q(["Return Success with file_hash, access_code, and download URL"])
+    P --> Q["Automatic browser download of .txt credentials receipt"]
+    Q --> R(["Display access_code and password in Django Admin"])
 ```
 
 ---
@@ -288,7 +294,7 @@ flowchart TD
 ## 4. Lifecycle & Secure Physical File Erasure
 
 To adhere to the **Right to Erasure (GDPR)** and prevent orphaned confidential files on disk:
-1. **`post_delete` Signal**: Attached to `EncryptedDocument` in [`models.py`](file:///home/jorge/GitHubRepositories/Freedec/freedec/models.py). When a record is deleted from Django Admin, the REST API, or ORM, the physical `.enc` file in `MEDIA_ROOT` is automatically deleted from disk.
+1. **`post_delete` Signal**: Attached to `EncryptedDocument` in [`models.py`](file:///home/jorge/GitHubRepositories/Freedec/freedec/models.py). When a record is deleted from Django Admin or ORM, the physical `.enc` file in `MEDIA_ROOT` is automatically deleted from disk.
 2. **CLI Management Command**: `python manage.py delete_document` provides `--list`, `--all`, or target name/hash deletion for complete database and physical unlinking.
 3. **Django Admin Button**: A direct `🗑️ Eliminar` button is provided in each table row in Django Admin.
 

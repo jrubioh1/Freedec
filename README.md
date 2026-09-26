@@ -364,35 +364,28 @@ poetry run python manage.py decrypt_document ruta/al/archivo.enc --password "TuC
 
 ## 7. Endpoints de la API REST
 
-Si deseas integrar Freedec con un frontend en React, Vue, Angular o una app móvil, utiliza los endpoints REST:
+Para la integración de Freedec con clientes externos, frontends desacoplados (React, Vue, Angular) o aplicaciones móviles, el sistema expone su API pública para la verificación y despacho de contraseñas. *(Nota: La administración, cifrado y registro de nuevos documentos se gestiona de forma centralizada y segura a través del panel de **Django Admin**)*:
 
-### 1. Subida Administrativa (`POST /freedec/api/admin/upload/`)
-* **Headers**: `Authorization: Bearer <TOKEN>` o sesión activa.
+### Recuperación Pública de Contraseña (`POST /freedec/api/public/request-password/`)
+* **Headers**: Sin autenticación requerida (Público con limitación de tasa `AnonRateThrottle`).
 * **Form-Data**:
-  * `original_file`: Archivo binario.
-  * `plain_password`: Contraseña.
-  * `allowed_emails`: `["auditor@empresa.com"]`.
-
-```bash
-curl -X POST http://127.0.0.1:8000/freedec/api/admin/upload/ \
-  -u admin:admin123 \
-  -F "original_file=@documento.pdf" \
-  -F "plain_password=ClaveSecreta#2026!" \
-  -F 'allowed_emails=["auditor@empresa.com"]'
-```
-
-### 2. Recuperación Pública (`POST /freedec/api/public/request-password/`)
-* **Headers**: Sin autenticación previa requerida (Público).
-* **Form-Data**:
-  * `file`: Archivo binario en posesión del usuario.
-  * `access_code`: Código secreto.
-  * `email`: Correo del usuario.
+  * `file`: Archivo binario original en posesión del usuario.
+  * `access_code`: Código secreto de acceso (Zero-Knowledge).
+  * `email`: Dirección de correo electrónico del destinatario.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/freedec/api/public/request-password/ \
   -F "file=@documento.pdf" \
   -F "access_code=CODIGO_DE_ACCESO" \
   -F "email=auditor@empresa.com"
+```
+
+* **Respuesta Exitosa / Neutra (`HTTP 200 OK`)**:
+```json
+{
+  "status": "processed",
+  "message": "Si los datos del documento y credenciales son válidos, se ha enviado un correo con las instrucciones de descifrado."
+}
 ```
 
 ---
@@ -810,21 +803,28 @@ poetry run python manage.py decrypt_document path/to/file.enc --password "YourPa
 
 ## 7. REST API Endpoints
 
-### 1. Admin Upload (`POST /freedec/api/admin/upload/`)
-```bash
-curl -X POST http://127.0.0.1:8000/freedec/api/admin/upload/ \
-  -u admin:admin123 \
-  -F "original_file=@document.pdf" \
-  -F "plain_password=SecretPassword#2026!" \
-  -F 'allowed_emails=["auditor@corp.com"]'
-```
+For integrating Freedec with external clients, decoupled frontends (React, Vue, Angular), or mobile applications, the system provides a public REST API for document verification and password dispatching. *(Note: Administrative registration, encryption, and document management is centralized exclusively and securely through **Django Admin**)*:
 
-### 2. Public Password Request (`POST /freedec/api/public/request-password/`)
+### Public Password Request (`POST /freedec/api/public/request-password/`)
+* **Headers**: No authentication required (Public, protected with `AnonRateThrottle` rate limiting).
+* **Form-Data**:
+  * `file`: Original binary document in user possession.
+  * `access_code`: Secret access code (Zero-Knowledge).
+  * `email`: Recipient email address.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/freedec/api/public/request-password/ \
   -F "file=@document.pdf" \
   -F "access_code=SECRET_ACCESS_CODE" \
   -F "email=auditor@corp.com"
+```
+
+* **Successful / Neutral Security Response (`HTTP 200 OK`)**:
+```json
+{
+  "status": "processed",
+  "message": "Si los datos del documento y credenciales son válidos, se ha enviado un correo con las instrucciones de descifrado."
+}
 ```
 
 ---
