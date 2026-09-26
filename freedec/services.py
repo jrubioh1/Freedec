@@ -232,15 +232,142 @@ class DocumentManagementService:
         self.crypto_service = crypto_service or FernetCryptoService()
 
     @transaction.atomic
+    def reactivate_document(
+        self,
+        document: EncryptedDocument,
+        original_file,
+        new_emails: List[str] = None,
+        burn_policy: Optional[str] = None,
+        admin_user=None,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> EncryptedDocument:
+        """
+        Reactiva un documento existente (consumido o activo) re-cifrándolo con una nueva DEK,
+        reemplazando la lista de destinatarios autorizados exclusivamente por los nuevos correos
+        (los correos anteriores se conservan en los registros históricos de auditoría) y
+        preservando todo el historial previo en DocumentAccessLog.
+        """
+        validate_document_file(original_file)
+        new_hash = calculate_file_sha256(original_file)
+        if new_hash != document.file_hash:
+            raise ValidationError(
+                _("El archivo proporcionado no coincide con el hash del documento original.")
+            )
+
+        # 1. Generación de nueva DEK simétrica
+        dek = Fernet.generate_key()
+
+        # 2. Cifrado con la nueva DEK
+        original_file.seek(0)
+        file_bytes = original_file.read()
+        encrypted_bytes = Fernet(dek).encrypt(file_bytes)
+        encrypted_file_hash = hashlib.sha256(encrypted_bytes).hexdigest()
+
+        # 3. Cifrar la DEK para el administrador con la clave del servidor
+        admin_encrypted_dek = self.crypto_service.encrypt_bytes(dek).decode("utf-8")
+
+        # 4. Eliminar archivo físico anterior si existe
+        if document.encrypted_file:
+            try:
+                document.encrypted_file.delete(save=False)
+            except Exception as exc:
+                logger.warning(f"[FREEDEC] Error al limpiar archivo físico previo: {exc}")
+
+        # Guardar nuevo archivo binario .enc
+        safe_name = document.original_filename or "documento.pdf"
+        enc_filename = f"{safe_name}.enc"
+        document.encrypted_file.save(enc_filename, ContentFile(encrypted_bytes), save=False)
+        document.encrypted_file_hash = encrypted_file_hash
+        document.admin_encrypted_dek = admin_encrypted_dek
+
+        # 5. Reemplazar correos autorizados: solo los nuevos destinatarios
+        # Los correos anteriores se preservan únicamente en los registros históricos de auditoría
+        previous_emails = list(document.allowed_emails or [])
+        clean_new_emails = []
+        if new_emails:
+            for email in new_emails:
+                if isinstance(email, str) and email.strip():
+                    try:
+                        valid_email = validate_safe_email(email)
+                        if valid_email not in clean_new_emails:
+                            clean_new_emails.append(valid_email)
+                    except ValidationError:
+                        pass
+        if not clean_new_emails:
+            clean_new_emails = ["destinatario@freedec.local"]
+        document.allowed_emails = clean_new_emails
+
+        # 6. Reconstruir sobres digitales exclusivamente para los nuevos destinatarios
+        user_envelopes = {}
+        for email in clean_new_emails:
+            user_secret = Fernet.generate_key()
+            encrypted_dek = Fernet(user_secret).encrypt(dek).decode("utf-8")
+            encrypted_user_secret = self.crypto_service.encrypt_bytes(user_secret).decode("utf-8")
+            user_envelopes[email] = {
+                "encrypted_dek": encrypted_dek,
+                "encrypted_user_secret": encrypted_user_secret,
+            }
+        document.user_envelopes = user_envelopes
+
+        # 7. Actualizar política si se especificó
+        if burn_policy:
+            valid_policies = [p[0] for p in EncryptedDocument.BurnPolicy.choices]
+            if burn_policy in valid_policies:
+                document.burn_policy = burn_policy
+
+        # 8. Resetear estado de consumo para el nuevo ciclo de distribución
+        document.is_consumed = False
+        document.consumed_by = None
+        document.consumed_at = None
+        document.consumed_recipients = []
+        document.save()
+
+        # 9. Registrar auditoría detallada de reactivación
+        admin_identifier = (
+            getattr(admin_user, "email", None)
+            or getattr(admin_user, "username", "admin")
+            if admin_user else "admin"
+        )
+        audit_details = (
+            f"Reactivación y re-cifrado. Destinatarios anteriores: {previous_emails}. "
+            f"Nuevos destinatarios habilitados: {clean_new_emails} (Total: {len(clean_new_emails)})."
+        )
+
+        try:
+            DocumentAccessLog.objects.create(
+                document=document,
+                email=admin_identifier,
+                action="reactivacion_documento",
+                ip_address=client_ip,
+                user_agent=audit_details,
+            )
+        except Exception as exc:
+            logger.warning(f"[FREEDEC] Error al registrar reactivacion_documento: {exc}")
+
+        logger.info(
+            f"[FREEDEC AUDIT] Documento '{document.original_filename}' (PK={document.pk}) reactivado exitosamente por '{admin_identifier}'. Destinatarios habilitados: {len(clean_new_emails)}."
+        )
+        return document
+
+    @transaction.atomic
     def upload_and_encrypt_document(
         self,
         original_file,
         allowed_emails: List[str] = None,
         plain_password: Optional[str] = None,
-    ) -> Tuple[EncryptedDocument, None]:
+        burn_policy: str = EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+        reopen_existing: bool = False,
+        admin_user=None,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Tuple[EncryptedDocument, bool]:
         """
-        Registra y cifra un documento aplicando el patrón DEK multi-usuario (user_envelopes).
-        Retorna la tupla (document, None) para mantener compatibilidad de signatura.
+        Registra y cifra un documento aplicando el patrón DEK multi-usuario (user_envelopes)
+        y la política de destrucción configurada (FIRST_ACCESS o ALL_RECIPIENTS).
+        Si reopen_existing=True y ya existe un documento con el mismo file_hash, reactiva
+        el registro existente habilitando los nuevos destinatarios y preservando el historial.
+        Retorna la tupla (document, is_reactivated).
         """
         max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
         if hasattr(original_file, "size") and original_file.size > max_size:
@@ -255,6 +382,21 @@ class DocumentManagementService:
 
         # 1. Identificación criptográfica por SHA-256 del contenido original
         file_hash = calculate_file_sha256(original_file)
+
+        # Si se solicita reutilizar o reactivar registro existente con el mismo hash
+        if reopen_existing:
+            existing_doc = EncryptedDocument.objects.filter(file_hash=file_hash).order_by("-created_at").first()
+            if existing_doc:
+                reactivated_doc = self.reactivate_document(
+                    document=existing_doc,
+                    original_file=original_file,
+                    new_emails=allowed_emails,
+                    burn_policy=burn_policy,
+                    admin_user=admin_user,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                )
+                return reactivated_doc, True
 
         # 2. Generación de Clave Maestra simétrica única (DEK)
         dek = Fernet.generate_key()
@@ -291,6 +433,10 @@ class DocumentManagementService:
         if not normalized_emails:
             normalized_emails = ["destinatario@freedec.local"]
 
+        # Validar política de destrucción
+        valid_policies = [p[0] for p in EncryptedDocument.BurnPolicy.choices]
+        chosen_policy = burn_policy if burn_policy in valid_policies else EncryptedDocument.BurnPolicy.FIRST_ACCESS
+
         # 6. Para cada correo en allowed_emails: generar secreto de usuario y construir sobre digital
         user_envelopes = {}
         for email in normalized_emails:
@@ -311,13 +457,15 @@ class DocumentManagementService:
             admin_encrypted_dek=admin_encrypted_dek,
             user_envelopes=user_envelopes,
             allowed_emails=normalized_emails,
+            burn_policy=chosen_policy,
+            consumed_recipients=[],
             is_consumed=False,
         )
 
         logger.info(
-            f"[FREEDEC AUDIT] Documento '{safe_original_name}' registrado exitosamente con DEK multi-usuario. Hash SHA-256: {file_hash}"
+            f"[FREEDEC AUDIT] Documento '{safe_original_name}' registrado exitosamente con DEK multi-usuario y política '{chosen_policy}'. Hash SHA-256: {file_hash}"
         )
-        return document, None
+        return document, False
 
     def request_document_access(
         self,
@@ -423,6 +571,45 @@ class DocumentManagementService:
             logger.warning(
                 f"[FREEDEC SECURITY] Correo '{normalized_email}' no autorizado para documento {document.pk}."
             )
+            return True, safe_generic_response
+
+        # Si la política es ALL_RECIPIENTS y este destinatario ya consumió su copia individual
+        if (
+            document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
+            and document.is_email_consumed(normalized_email)
+        ):
+            try:
+                DocumentAccessLog.objects.create(
+                    document=document,
+                    email=normalized_email,
+                    action="intento_post_consumo",
+                    ip_address=client_ip,
+                    user_agent=user_agent,
+                )
+            except Exception as exc:
+                logger.warning(f"[FREEDEC] Error al registrar intento post-consumo individual: {exc}")
+
+            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+            subject = f"[Freedec] Copia ya descargada: {doc_name}"
+            body = (
+                _("Estimado usuario,") + "\n\n"
+                + (_("Usted ya ha descargado previamente una copia del documento '%(doc_name)s'. Cada destinatario autorizado dispone de una única descarga permitida.") % {"doc_name": doc_name}) + "\n\n"
+                + _("Atentamente,") + "\n"
+                + _("Sistema Automatizado Freedec")
+            )
+            from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local")
+            try:
+                send_mail(
+                    subject=subject,
+                    message=body,
+                    from_email=from_email,
+                    recipient_list=[normalized_email],
+                    fail_silently=False,
+                )
+                logger.info(f"[FREEDEC AUDIT] Notificación de copia ya descargada enviada a '{normalized_email}'.")
+            except Exception as exc:
+                logger.error(f"[FREEDEC ERROR] Fallo al enviar notificación de copia ya descargada: {exc}")
+
             return True, safe_generic_response
 
         # Generar token url-safe de alta entropía y código OTP de 6 dígitos
@@ -542,10 +729,26 @@ class DocumentManagementService:
                 f"El documento '{doc_name}' ya fue retirado por {document.consumed_by} el {document.consumed_at.strftime('%Y-%m-%d %H:%M:%S UTC') if document.consumed_at else ''}. Solicite una copia directamente a esa dirección.",
             )
 
+        user_email = token_obj.email
+
+        if (
+            document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
+            and document.is_email_consumed(user_email)
+        ):
+            token_obj.is_used = True
+            token_obj.save(update_fields=["is_used"])
+            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+            return (
+                False,
+                None,
+                None,
+                None,
+                _("Usted ya ha descargado previamente una copia de este documento. Cada destinatario autorizado dispone de una única descarga permitida."),
+            )
+
         if not document.encrypted_file:
             return False, None, None, None, _("El archivo cifrado no se encuentra en el almacenamiento.")
 
-        user_email = token_obj.email
         envelope = document.user_envelopes.get(user_email)
         if not envelope or "encrypted_dek" not in envelope or "encrypted_user_secret" not in envelope:
             return False, None, None, None, _("No se encontró un sobre digital válido para el usuario solicitante.")
@@ -583,42 +786,72 @@ class DocumentManagementService:
         token_obj.is_used = True
         token_obj.save(update_fields=["is_used"])
 
-        # 2. Borrado seguro físico del binario en disco
-        if document.encrypted_file:
-            try:
-                document.encrypted_file.delete(save=False)
-                logger.info(f"[FREEDEC AUDIT] Archivo físico (.enc) eliminado de disco tras descarga por '{user_email}'.")
-            except Exception as exc:
-                logger.warning(f"[FREEDEC WARNING] Error al eliminar archivo físico: {exc}")
-
-        # 3. Actualizar registro en base de datos: is_consumed, consumed_by, consumed_at
         now = timezone.now()
-        document.is_consumed = True
-        document.consumed_by = user_email
-        document.consumed_at = now
         document.last_accessed_at = now
         document.last_accessed_by = user_email
         document.access_count += 1
-        document.save(update_fields=[
-            "is_consumed", "consumed_by", "consumed_at",
-            "last_accessed_at", "last_accessed_by", "access_count", "encrypted_file"
-        ])
 
-        # 4. Registrar en DocumentAccessLog: action="descifrado_completado_burn"
+        # Registrar destinatario en lista de consumos
+        consumed_list = list(document.consumed_recipients or [])
+        if user_email not in [e.strip().lower() for e in consumed_list if isinstance(e, str)]:
+            consumed_list.append(user_email)
+        document.consumed_recipients = consumed_list
+
+        should_burn = False
+        if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS:
+            if document.are_all_recipients_consumed():
+                should_burn = True
+                document.consumed_by = f"todos los destinatarios autorizados ({len(consumed_list)}/{len(document.allowed_emails)})"
+            else:
+                should_burn = False
+        else:
+            # FIRST_ACCESS
+            should_burn = True
+            document.consumed_by = user_email
+
+        if should_burn:
+            # 2. Borrado seguro físico del binario en disco
+            if document.encrypted_file:
+                try:
+                    document.encrypted_file.delete(save=False)
+                    logger.info(f"[FREEDEC AUDIT] Archivo físico (.enc) eliminado de disco tras descarga final por '{user_email}'.")
+                except Exception as exc:
+                    logger.warning(f"[FREEDEC WARNING] Error al eliminar archivo físico: {exc}")
+
+            # 3. Actualizar registro en base de datos: is_consumed, consumed_by, consumed_at
+            document.is_consumed = True
+            document.consumed_at = now
+            document.save(update_fields=[
+                "is_consumed", "consumed_by", "consumed_at",
+                "last_accessed_at", "last_accessed_by", "access_count", "encrypted_file",
+                "consumed_recipients",
+            ])
+            log_action = "descifrado_completado_burn"
+            logger.info(
+                f"[FREEDEC AUDIT] Documento '{suggested_filename}' consumido y destruido con éxito tras descarga final por '{user_email}'."
+            )
+        else:
+            # Se preserva el archivo físico porque aún restan destinatarios por acceder
+            document.save(update_fields=[
+                "last_accessed_at", "last_accessed_by", "access_count", "consumed_recipients",
+            ])
+            log_action = "descifrado_parcial_preservado"
+            logger.info(
+                f"[FREEDEC AUDIT] Documento '{suggested_filename}' descargado por '{user_email}'. Archivo preservado en disco ({len(consumed_list)}/{len(document.allowed_emails)} destinatarios)."
+            )
+
+        # 4. Registrar en DocumentAccessLog
         try:
             DocumentAccessLog.objects.create(
                 document=document,
                 email=user_email,
-                action="descifrado_completado_burn",
+                action=log_action,
                 ip_address=client_ip,
                 user_agent=user_agent,
             )
         except Exception as exc:
-            logger.warning(f"[FREEDEC] Error al registrar descifrado_completado_burn: {exc}")
+            logger.warning(f"[FREEDEC] Error al registrar {log_action}: {exc}")
 
-        logger.info(
-            f"[FREEDEC AUDIT] Documento '{suggested_filename}' consumido y destruido con éxito por '{user_email}'."
-        )
         return True, decrypted_bytes, suggested_filename, mimetype, _("Documento descifrado correctamente.")
 
     def admin_decrypt_document(

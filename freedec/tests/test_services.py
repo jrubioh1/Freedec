@@ -631,3 +631,175 @@ class FreedecServicesSecurityTestCase(TestCase):
 
         EncryptedDocument.objects.filter(id=doc.id).delete()
         self.assertFalse(storage.exists(file_name))
+
+    def test_burn_policy_all_recipients_lifecycle(self):
+        """
+        Verifica el ciclo de vida completo de la política ALL_RECIPIENTS:
+        1. Se sube documento para Alice y Bob con burn_policy='ALL_RECIPIENTS'.
+        2. Alice solicita acceso y consume el documento.
+        3. El archivo físico se PRESERVA en disco y el documento NO se marca como consumido.
+        4. Alice intenta volver a acceder y es notificada de que ya descargó su copia.
+        5. Bob solicita acceso y consume el documento.
+        6. Al ser el último destinatario, el archivo físico se ELIMINA y el documento se marca consumido.
+        """
+        uploaded = SimpleUploadedFile("balance_multi.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            allowed_emails=["alice@empresa.com", "bob@empresa.com"],
+            burn_policy=EncryptedDocument.BurnPolicy.ALL_RECIPIENTS,
+        )
+        self.assertEqual(doc.burn_policy, EncryptedDocument.BurnPolicy.ALL_RECIPIENTS)
+        self.assertEqual(doc.consumed_recipients, [])
+        self.assertFalse(doc.is_consumed)
+
+        storage = doc.encrypted_file.storage
+        file_name = doc.encrypted_file.name
+        self.assertTrue(storage.exists(file_name))
+
+        doc.encrypted_file.seek(0)
+        enc_bytes = doc.encrypted_file.read()
+
+        # 1. Alice solicita acceso
+        mail.outbox.clear()
+        self.doc_service.request_document_access(
+            uploaded_file=SimpleUploadedFile("balance_multi.enc", enc_bytes),
+            recipient_email="alice@empresa.com",
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        alice_token_str = mail.outbox[0].body.split("?t=")[1].split()[0]
+
+        # Alice consume el documento
+        success, decrypted_bytes, suggested_filename, mimetype, msg = (
+            self.doc_service.consume_and_burn_document(token_str=alice_token_str)
+        )
+        self.assertTrue(success)
+        self.assertEqual(decrypted_bytes, self.test_content)
+
+        doc.refresh_from_db()
+        self.assertFalse(doc.is_consumed, "El documento NO debe estar consumido porque Bob aún no accedió")
+        self.assertTrue(storage.exists(file_name), "El archivo físico DEBE preservarse para Bob")
+        self.assertIn("alice@empresa.com", doc.consumed_recipients)
+        self.assertNotIn("bob@empresa.com", doc.consumed_recipients)
+
+        # Verificar log de descifrado parcial
+        log_alice = DocumentAccessLog.objects.filter(
+            document=doc,
+            email="alice@empresa.com",
+            action="descifrado_parcial_preservado",
+        ).first()
+        self.assertIsNotNone(log_alice)
+
+        # 2. Alice intenta solicitar acceso nuevamente
+        mail.outbox.clear()
+        self.doc_service.request_document_access(
+            uploaded_file=SimpleUploadedFile("balance_multi.enc", enc_bytes),
+            recipient_email="alice@empresa.com",
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Copia ya descargada", mail.outbox[0].subject)
+
+        # 3. Bob solicita acceso
+        mail.outbox.clear()
+        self.doc_service.request_document_access(
+            uploaded_file=SimpleUploadedFile("balance_multi.enc", enc_bytes),
+            recipient_email="bob@empresa.com",
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        bob_token_str = mail.outbox[0].body.split("?t=")[1].split()[0]
+
+        # Bob consume el documento (es el último)
+        success_bob, decrypted_bob, _, _, _ = (
+            self.doc_service.consume_and_burn_document(token_str=bob_token_str)
+        )
+        self.assertTrue(success_bob)
+        self.assertEqual(decrypted_bob, self.test_content)
+
+        doc.refresh_from_db()
+        self.assertTrue(doc.is_consumed, "El documento AHORA debe estar consumido por completarse todos")
+        self.assertFalse(storage.exists(file_name), "El archivo físico DEBE haber sido eliminado del disco")
+        self.assertIn("alice@empresa.com", doc.consumed_recipients)
+        self.assertIn("bob@empresa.com", doc.consumed_recipients)
+
+        # Verificar log de descifrado final burn
+        log_bob = DocumentAccessLog.objects.filter(
+            document=doc,
+            email="bob@empresa.com",
+            action="descifrado_completado_burn",
+        ).first()
+        self.assertIsNotNone(log_bob)
+
+    def test_reactivate_document_replaces_emails_and_preserves_history(self):
+        """
+        Verifica que reactivate_document:
+        1. Re-cifra el archivo con nueva DEK y crea nuevo archivo en disco.
+        2. Reemplaza allowed_emails exclusivamente con los nuevos correos (los anteriores no permanecen).
+        3. Reconstruye user_envelopes solo para los nuevos correos.
+        4. Resetea is_consumed a False y consumed_recipients a [].
+        5. Preserva el registro histórico en DocumentAccessLog con detalles de destinatarios anteriores y nuevos.
+        """
+        uploaded = SimpleUploadedFile("balance_reactivar.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            allowed_emails=["antiguo1@empresa.com", "antiguo2@empresa.com"],
+        )
+        old_dek = doc.admin_encrypted_dek
+        old_hash = doc.encrypted_file_hash
+
+        # Simular consumo previo
+        doc.is_consumed = True
+        doc.consumed_by = "antiguo1@empresa.com"
+        doc.consumed_recipients = ["antiguo1@empresa.com"]
+        doc.encrypted_file.delete(save=False)
+        doc.save()
+
+        # Reactivar con nuevos destinatarios
+        reupload_file = SimpleUploadedFile("balance_reactivar.pdf", self.test_content)
+        reactivated = self.doc_service.reactivate_document(
+            document=doc,
+            original_file=reupload_file,
+            new_emails=["nuevo1@empresa.com", "nuevo2@empresa.com"],
+            admin_user=self.admin_user,
+        )
+
+        self.assertEqual(reactivated.pk, doc.pk)
+        self.assertFalse(reactivated.is_consumed)
+        self.assertEqual(reactivated.consumed_recipients, [])
+        self.assertIsNone(reactivated.consumed_by)
+        self.assertNotEqual(reactivated.admin_encrypted_dek, old_dek)
+        self.assertNotEqual(reactivated.encrypted_file_hash, old_hash)
+
+        # Los correos antiguos ya NO están en la lista, solo los nuevos
+        self.assertNotIn("antiguo1@empresa.com", reactivated.allowed_emails)
+        self.assertNotIn("antiguo2@empresa.com", reactivated.allowed_emails)
+        self.assertIn("nuevo1@empresa.com", reactivated.allowed_emails)
+        self.assertIn("nuevo2@empresa.com", reactivated.allowed_emails)
+        self.assertIn("nuevo1@empresa.com", reactivated.user_envelopes)
+        self.assertNotIn("antiguo1@empresa.com", reactivated.user_envelopes)
+
+        # Archivo físico en disco restaurado
+        self.assertTrue(reactivated.encrypted_file.storage.exists(reactivated.encrypted_file.name))
+
+        # Log histórico de reactivación registrado
+        log = DocumentAccessLog.objects.filter(
+            document=reactivated,
+            action="reactivacion_documento",
+        ).first()
+        self.assertIsNotNone(log)
+        self.assertIn("antiguo1@empresa.com", log.user_agent)
+        self.assertIn("nuevo1@empresa.com", log.user_agent)
+
+    def test_reactivate_document_rejects_mismatched_hash(self):
+        """Reactivar con un archivo de contenido diferente arroja ValidationError."""
+        uploaded = SimpleUploadedFile("original.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            allowed_emails=["test@empresa.com"],
+        )
+        different_file = SimpleUploadedFile("otro.pdf", b"%PDF-1.4 completely different content")
+        with self.assertRaises(ValidationError):
+            self.doc_service.reactivate_document(
+                document=doc,
+                original_file=different_file,
+                new_emails=["nuevo@empresa.com"],
+            )
+

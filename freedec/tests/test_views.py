@@ -88,7 +88,13 @@ class FreedecViewsAPITestCase(APITestCase):
         self.assertFalse(doc.is_consumed)
 
     def test_admin_upload_same_file_twice_success(self):
-        """Un administrador puede subir el mismo archivo dos veces sin error."""
+        """
+        Al volver a subir el mismo archivo (mismo hash) desde Django Admin:
+        - Abre y reactiva el registro existente en lugar de duplicarlo.
+        - Añade los nuevos destinatarios a los existentes.
+        - Registra el evento de reactivación en DocumentAccessLog.
+        - Redirige directamente a la página de edición del documento existente.
+        """
         self.client.force_login(self.admin_user)
         file1 = SimpleUploadedFile("duplicate.pdf", self.sample_bytes)
         resp1 = self.client.post(
@@ -100,7 +106,10 @@ class FreedecViewsAPITestCase(APITestCase):
             follow=True,
         )
         self.assertEqual(resp1.status_code, status.HTTP_200_OK)
+        self.assertEqual(EncryptedDocument.objects.filter(file_hash=self.expected_hash).count(), 1)
+        doc1 = EncryptedDocument.objects.filter(file_hash=self.expected_hash).first()
 
+        # Se sube de nuevo el mismo archivo pero con un nuevo destinatario
         file2 = SimpleUploadedFile("duplicate.pdf", self.sample_bytes)
         resp2 = self.client.post(
             self.django_admin_add_url,
@@ -108,10 +117,123 @@ class FreedecViewsAPITestCase(APITestCase):
                 "original_file": file2,
                 "allowed_emails": ["user2@corp.com"],
             },
+            follow=False,
+        )
+        # Verifica la redirección directa al registro existente
+        self.assertEqual(resp2.status_code, status.HTTP_302_FOUND)
+        expected_redirect_url = reverse("admin:freedec_encrypteddocument_change", args=[doc1.pk])
+        self.assertEqual(resp2.url, expected_redirect_url)
+
+        # Verifica que no se ha duplicado en BD y que solo contiene el nuevo correo
+        self.assertEqual(EncryptedDocument.objects.filter(file_hash=self.expected_hash).count(), 1)
+        doc1.refresh_from_db()
+        self.assertNotIn("user1@corp.com", doc1.allowed_emails)
+        self.assertIn("user2@corp.com", doc1.allowed_emails)
+        self.assertFalse(doc1.is_consumed)
+
+        # Verifica registro histórico de reactivación detallado
+        reactivation_log = DocumentAccessLog.objects.filter(
+            document=doc1,
+            action="reactivacion_documento",
+        ).first()
+        self.assertIsNotNone(reactivation_log)
+        self.assertIn("user2@corp.com", reactivation_log.user_agent)
+        self.assertIn("user1@corp.com", reactivation_log.user_agent)
+
+        # Verifica que al seguir la redirección se muestra el aviso de destinatario omitido
+        resp2_get = self.client.get(expected_redirect_url)
+        self.assertContains(resp2_get, "Aviso de destinatarios omitidos")
+        self.assertContains(resp2_get, "user1@corp.com")
+
+    def test_admin_check_file_hash_api(self):
+        """Verifica el endpoint JSON check-file-hash para detección en tiempo real y alerta de pendientes."""
+        self.client.force_login(self.admin_user)
+        uploaded = SimpleUploadedFile("existente.pdf", self.sample_bytes)
+        doc, _ = self.service.upload_and_encrypt_document(
+            original_file=uploaded,
+            allowed_emails=["test@corp.com"],
+        )
+        url = reverse("admin:freedec_encrypteddocument_check_hash")
+
+        # Hash inexistente
+        resp_fake = self.client.get(f"{url}?hash=0000000000000000000000000000000000000000000000000000000000000000")
+        self.assertEqual(resp_fake.status_code, 200)
+        self.assertFalse(resp_fake.json()["exists"])
+
+        # Hash existente
+        resp_real = self.client.get(f"{url}?hash={self.expected_hash}")
+        self.assertEqual(resp_real.status_code, 200)
+        data = resp_real.json()
+        self.assertTrue(data["exists"])
+        self.assertEqual(data["id"], doc.pk)
+        self.assertEqual(data["filename"], "existente.pdf")
+        self.assertIn(str(doc.pk), data["change_url"])
+        self.assertEqual(data["pending_recipients"], ["test@corp.com"])
+
+    def test_admin_reupload_via_change_view(self):
+        """Un administrador puede reactivar un documento consumido re-subiendo el archivo desde su vista de edición."""
+        self.client.force_login(self.admin_user)
+        uploaded = SimpleUploadedFile("consumido.pdf", self.sample_bytes)
+        doc, _ = self.service.upload_and_encrypt_document(
+            original_file=uploaded,
+            allowed_emails=["primero@corp.com"],
+        )
+        # Simular consumo previo
+        doc.is_consumed = True
+        doc.consumed_by = "primero@corp.com"
+        doc.encrypted_file.delete(save=False)
+        doc.save()
+
+        # Re-subida desde el formulario de cambio para reactivarlo
+        change_url = reverse("admin:freedec_encrypteddocument_change", args=[doc.pk])
+        reupload_file = SimpleUploadedFile("consumido.pdf", self.sample_bytes)
+        resp = self.client.post(
+            change_url,
+            {
+                "allowed_emails": ["nuevo@corp.com"],
+                "reupload_file": reupload_file,
+                "access_logs-TOTAL_FORMS": "0",
+                "access_logs-INITIAL_FORMS": "0",
+                "access_logs-MIN_NUM_FORMS": "0",
+                "access_logs-MAX_NUM_FORMS": "0",
+                "tokens-TOTAL_FORMS": "0",
+                "tokens-INITIAL_FORMS": "0",
+                "tokens-MIN_NUM_FORMS": "0",
+                "tokens-MAX_NUM_FORMS": "0",
+                "_save": "Guardar",
+            },
             follow=True,
         )
-        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
-        self.assertEqual(EncryptedDocument.objects.filter(file_hash=self.expected_hash).count(), 2)
+        self.assertEqual(resp.status_code, 200)
+        doc.refresh_from_db()
+        self.assertFalse(doc.is_consumed, "El documento debe volver a estar activo tras la re-subida")
+        self.assertTrue(doc.encrypted_file.storage.exists(doc.encrypted_file.name))
+        self.assertNotIn("primero@corp.com", doc.allowed_emails)
+        self.assertIn("nuevo@corp.com", doc.allowed_emails)
+        self.assertTrue(
+            DocumentAccessLog.objects.filter(document=doc, action="reactivacion_documento").exists()
+        )
+
+    def test_admin_upload_with_all_recipients_burn_policy(self):
+        """Un administrador puede subir un archivo seleccionando la política ALL_RECIPIENTS."""
+        self.client.force_login(self.admin_user)
+        file_obj = SimpleUploadedFile("politica_todos.pdf", self.sample_bytes)
+        resp = self.client.post(
+            self.django_admin_add_url,
+            {
+                "original_file": file_obj,
+                "allowed_emails": ["dest1@corp.com", "dest2@corp.com"],
+                "burn_policy": "ALL_RECIPIENTS",
+            },
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        doc = EncryptedDocument.objects.filter(original_filename="politica_todos.pdf").first()
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc.burn_policy, EncryptedDocument.BurnPolicy.ALL_RECIPIENTS)
+        self.assertEqual(doc.consumed_recipients, [])
+        self.assertIn("dest1@corp.com", doc.allowed_emails)
+        self.assertIn("dest2@corp.com", doc.allowed_emails)
 
     def test_admin_download_authenticated_preserves_file(self):
         """Un administrador descarga el archivo descifrado desde el panel sin destruirlo (Audit Bypass)."""

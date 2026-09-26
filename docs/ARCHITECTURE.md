@@ -149,9 +149,11 @@ flowchart TD
 | `admin_encrypted_dek` | `TextField` | `blank=True` | DEK cifrada con la clave del servidor para descarga administrativa protegida. |
 | `user_envelopes` | `JSONField` | `default=dict` | Sobres digitales indexados por email (`encrypted_dek`, `encrypted_user_secret`). |
 | `allowed_emails` | `JSONField` | `default=list` | Lista blanca de correos autorizados a solicitar acceso. |
+| `burn_policy` | `CharField(20)` | `choices=BurnPolicy.choices`, `default='FIRST_ACCESS'` | Política de destrucción: `FIRST_ACCESS` (primer acceso) o `ALL_RECIPIENTS` (todos). |
+| `consumed_recipients` | `JSONField` | `default=list`, `blank=True` | Lista de destinatarios que ya han descargado su copia única. |
 | `is_consumed` | `BooleanField` | `default=False`, `db_index=True` | Estado del ciclo de vida (Burn-After-Read). |
-| `consumed_by` | `EmailField` | `null=True`, `blank=True` | Correo del usuario que realizó la descarga destructiva. |
-| `consumed_at` | `DateTimeField` | `null=True`, `blank=True` | Fecha y hora exacta de la destrucción del binario. |
+| `consumed_by` | `CharField(254)` | `null=True`, `blank=True` | Destinatario o resumen de usuarios que completaron la destrucción física. |
+| `consumed_at` | `DateTimeField` | `null=True`, `blank=True` | Fecha y hora exacta de la destrucción definitiva del binario. |
 | `access_count` | `PositiveIntegerField` | `default=0` | Contador de accesos y recuperaciones. |
 | `last_accessed_at` | `DateTimeField` | `null=True`, `blank=True` | Fecha y hora del último acceso. |
 | `last_accessed_by` | `CharField(254)` | `blank=True` | Identificador del último usuario solicitante. |
@@ -193,8 +195,25 @@ Para garantizar la supervisión y recuperación ante incidentes por personal adm
 
 ## 5. Ciclo de Vida y Destrucción Física
 
-1. **Burn-After-Read (Consumo por Usuario Final)**: Al completarse la descarga del documento original por parte de un usuario autorizado, se invoca `document.encrypted_file.delete(save=False)`.
+1. **Burn-After-Read (Consumo por Usuario Final)**:
+   - En política `FIRST_ACCESS`, el archivo en disco se elimina al primer acceso exitoso (`document.encrypted_file.delete(save=False)`).
+   - En política `ALL_RECIPIENTS`, cada usuario autorizado puede descargar su copia una sola vez; el archivo se destruye en cuanto el último destinatario pendiente completa su descarga.
 2. **Derecho al Olvido (RGPD / GDPR)**: Si un documento no consumido es eliminado por el administrador o mediante `python manage.py delete_document`, la señal `post_delete` elimina físicamente el fichero `.enc` de disco.
+
+---
+
+## 6. Detección de Hash Idéntico, Reapertura y Reactivación
+
+1. **Detección Criptográfica en Cliente y Servidor**:
+   - En el formulario de alta de Django Admin, `HashingFileInputWidget` computa el hash SHA-256 en el navegador mediante WebCrypto API y consulta el endpoint `/admin/freedec/encrypteddocument/check-file-hash/?hash=...`. Si el documento ya existe, despliega un aviso con enlace directo al registro existente.
+   - Si se envía el formulario de alta con un archivo existente, el backend redirige a la vista de edición del registro existente (`admin:freedec_encrypteddocument_change`) sin duplicar filas.
+2. **Reactivación y Re-cifrado**:
+   - Tanto desde el formulario de cambio (`reupload_file`) como al reenviar el alta, el método `DocumentManagementService.reactivate_document()` genera una nueva DEK, re-cifra el archivo y restaura el estado operativo (`is_consumed=False`, `consumed_recipients=[]`).
+3. **Reemplazo Exclusivo de Destinatarios**:
+   - La lista activa de correos autorizados (`allowed_emails`) y sus sobres digitales (`user_envelopes`) se actualizan para contener **únicamente los nuevos destinatarios**. Los destinatarios anteriores dejan de tener acceso activo.
+4. **Preservación Exhaustiva del Histórico**:
+   - Todo el historial anterior de accesos y descargas se mantiene intacto en `DocumentAccessLog`.
+   - Se crea un registro de auditoría con `action="reactivacion_documento"` que detalla quién reactivó el archivo, los correos anteriores reemplazados y los nuevos correos habilitados.
 
 ---
 ---
@@ -341,8 +360,10 @@ flowchart TD
 | `admin_encrypted_dek` | `TextField` | `blank=True` | DEK encrypted with server key for preserved administrative download. |
 | `user_envelopes` | `JSONField` | `default=dict` | Digital envelopes indexed by email (`encrypted_dek`, `encrypted_user_secret`). |
 | `allowed_emails` | `JSONField` | `default=list` | Whitelist of authorized recipient emails. |
+| `burn_policy` | `CharField(20)` | `choices=BurnPolicy.choices`, `default='FIRST_ACCESS'` | Destruction policy: `FIRST_ACCESS` or `ALL_RECIPIENTS`. |
+| `consumed_recipients` | `JSONField` | `default=list`, `blank=True` | List of recipient emails that have completed their single download. |
 | `is_consumed` | `BooleanField` | `default=False`, `db_index=True` | Lifecycle state (Burn-After-Read). |
-| `consumed_by` | `EmailField` | `null=True`, `blank=True` | Email of user who performed destructive consumption. |
+| `consumed_by` | `CharField(254)` | `null=True`, `blank=True` | Recipient email or summary of users who completed physical destruction. |
 | `consumed_at` | `DateTimeField` | `null=True`, `blank=True` | Exact timestamp of file deletion. |
 | `access_count` | `PositiveIntegerField` | `default=0` | Total access / consumption counter. |
 | `last_accessed_at` | `DateTimeField` | `null=True`, `blank=True` | Timestamp of last access. |
@@ -379,3 +400,28 @@ flowchart TD
 2. **Server Key Decryption**: The backend uses `admin_encrypted_dek` and `FREEDEC_FERNET_KEY` to decrypt the original binary without needing user secrets.
 3. **Non-Destructive**: Administrative downloads **do not delete the file** and do not set `is_consumed = True`.
 4. **Mandatory Audit Logging**: An event with `action="admin_inspeccion_preservada"` is recorded in `DocumentAccessLog`.
+
+---
+
+## 5. Lifecycle and Physical Destruction
+
+1. **Burn-After-Read (End-User Consumption)**:
+   - In `FIRST_ACCESS` policy, the physical file is destroyed upon first successful download (`document.encrypted_file.delete(save=False)`).
+   - In `ALL_RECIPIENTS` policy, each authorized recipient is allowed a single download; physical destruction occurs once the final remaining recipient completes their download.
+2. **Right to Be Forgotten (GDPR)**: When an unconsumed document is deleted via admin or `python manage.py delete_document`, the `post_delete` signal permanently deletes the `.enc` binary from storage.
+
+---
+
+## 6. Identical Hash Detection, Record Reopening & Reactivation
+
+1. **Cryptographic Detection on Client & Server**:
+   - In the Django Admin upload form, `HashingFileInputWidget` calculates the SHA-256 in the browser via WebCrypto API and queries `/admin/freedec/encrypteddocument/check-file-hash/?hash=...`. If the file was previously stored, a direct link notice to the existing record is displayed.
+   - If submitted, the backend redirects to the existing record's change page (`admin:freedec_encrypteddocument_change`) without creating duplicate records.
+2. **Reactivation & Re-encryption**:
+   - Both via the change form (`reupload_file`) and via re-uploading an existing file, `DocumentManagementService.reactivate_document()` creates a fresh DEK, re-encrypts the file in storage, and resets operational status (`is_consumed=False`, `consumed_recipients=[]`).
+3. **Exclusive Recipient Assignment**:
+   - The active authorized recipient list (`allowed_emails`) and digital envelopes (`user_envelopes`) are replaced to include **only the newly specified recipients**. Previous recipients no longer have active access.
+4. **Comprehensive Historical Preservation**:
+   - All past access history, partial consumption, and audit events remain completely preserved in `DocumentAccessLog`.
+   - A new audit entry with `action="reactivacion_documento"` is recorded detailing who reactivated the file, which previous recipients were replaced, and which new recipients were enabled.
+

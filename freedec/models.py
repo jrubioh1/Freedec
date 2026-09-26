@@ -71,17 +71,37 @@ class EncryptedDocument(models.Model):
         verbose_name=_("Correos autorizados"),
         help_text=_("Lista de correos electrónicos autorizados en formato JSON (minúsculas)."),
     )
+    class BurnPolicy(models.TextChoices):
+        FIRST_ACCESS = "FIRST_ACCESS", _("Con que solo acceda uno (al primer acceso)")
+        ALL_RECIPIENTS = "ALL_RECIPIENTS", _("Cuando accedan todos (destruir tras el acceso de todos)")
+
+    burn_policy = models.CharField(
+        max_length=20,
+        choices=BurnPolicy.choices,
+        default=BurnPolicy.FIRST_ACCESS,
+        verbose_name=_("Política de destrucción"),
+        help_text=_(
+            "Determina si el archivo se destruye al primer acceso de cualquiera o cuando todos los destinatarios hayan accedido."
+        ),
+    )
+    consumed_recipients = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Destinatarios que han consumido"),
+        help_text=_("Lista de correos autorizados que ya han descargado su copia."),
+    )
     is_consumed = models.BooleanField(
         default=False,
         db_index=True,
         verbose_name=_("¿Archivo consumido?"),
         help_text=_("Indica si el documento ya ha sido descifrado y consumido por un destinatario final."),
     )
-    consumed_by = models.EmailField(
+    consumed_by = models.CharField(
+        max_length=254,
         null=True,
         blank=True,
         verbose_name=_("Consumido por"),
-        help_text=_("Correo del usuario final que consumió y provocó la destrucción del documento."),
+        help_text=_("Correo del usuario final o resumen de destinatarios que consumieron y provocaron la destrucción del documento."),
     )
     consumed_at = models.DateTimeField(
         blank=True,
@@ -136,6 +156,21 @@ class EncryptedDocument(models.Model):
             return False
         normalized_email = email.strip().lower()
         return normalized_email in [e.strip().lower() for e in self.allowed_emails if isinstance(e, str)]
+
+    def is_email_consumed(self, email: str) -> bool:
+        """Comprueba si un correo ya ha descargado su copia."""
+        if not email or not isinstance(self.consumed_recipients, list):
+            return False
+        normalized_email = email.strip().lower()
+        return normalized_email in [e.strip().lower() for e in self.consumed_recipients if isinstance(e, str)]
+
+    def are_all_recipients_consumed(self) -> bool:
+        """Comprueba si todos los correos autorizados ya han descargado su copia."""
+        if not isinstance(self.allowed_emails, list) or not self.allowed_emails:
+            return True
+        allowed_set = {e.strip().lower() for e in self.allowed_emails if isinstance(e, str) and e.strip()}
+        consumed_set = {e.strip().lower() for e in self.consumed_recipients if isinstance(e, str) and e.strip()}
+        return allowed_set.issubset(consumed_set)
 
 
 class AccessVerificationToken(models.Model):
@@ -220,6 +255,7 @@ class DocumentAccessLog(models.Model):
         verbose_name=_("Acción"),
         help_text=_(
             "Tipo de evento: 'solicitud_acceso', 'descifrado_completado_burn', "
+            "'descifrado_parcial_preservado', 'reactivacion_documento', "
             "'intento_post_consumo', 'admin_inspeccion_preservada', 'intento_fallido'."
         ),
     )

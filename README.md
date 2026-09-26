@@ -50,14 +50,22 @@ Compartir documentos de alta confidencialidad (contratos, auditorías, informes 
    * El sistema genera un token de un solo uso de alta entropía (`secrets.token_urlsafe(32)`) y un código OTP numérico de 6 dígitos con **expiración estricta a 15 minutos**.
    * En la base de datos **solo se almacena el hash SHA-256 del token** (Zero-Knowledge).
    * El enlace directo (`https://dominio/freedec/consumir/?t={token}`) y el código OTP se envían de forma exclusiva a la bandeja de entrada del usuario verificado.
-3. **Descifrado al Vuelo y Destrucción Física (Burn-After-Read)**:
+3. **Descifrado al Vuelo y Política de Destrucción (Burn Policy)**:
    * Al hacer clic en el Enlace Mágico o ingresar el OTP, el sistema abre el sobre digital del usuario, recupera la DEK y entrega el archivo original descifrado.
-   * **Destrucción Física Inmediata**: El archivo cifrado `.enc` en disco se **elimina de forma física e irreversible** (`document.encrypted_file.delete(save=False)`).
-   * El registro en base de datos se marca `is_consumed = True`, guardando `consumed_by` y `consumed_at`.
+   * **Modo 'Con que solo acceda uno' (FIRST_ACCESS)**: El archivo cifrado `.enc` en disco se **elimina de forma física e irreversible** (`document.encrypted_file.delete(save=False)`) tras el primer consumo de cualquiera de los usuarios autorizados.
+   * **Modo 'Cuando accedan todos' (ALL_RECIPIENTS)**: Cada destinatario autorizado dispone de una única descarga. El archivo físico se preserva en disco hasta que **todos** los destinatarios autorizados hayan descargado su copia, momento en el cual se destruye físicamente de forma definitiva.
+   * El registro en base de datos se marca `is_consumed = True`, guardando la auditoría de consumos.
 4. **Gestión de Accesos Posteriores**:
    * Si otro usuario autorizado intenta solicitar o descifrar un documento ya consumido, el sistema no produce errores 500 ni fuga datos. En su lugar, le envía automáticamente un correo con asunto `[Freedec] Archivo ya retirado: {nombre_documento}` informando: *"El documento '{nombre_documento}' ya fue retirado por {consumed_by} el {consumed_at}. Solicite una copia directamente a esa dirección."*
 5. **Acceso Administrativo Preservado (Audit Bypass)**:
    * El personal administrativo autorizado en Django Admin puede descargar una copia original descifrada para fines de auditoría o contingencia usando la clave de servidor **sin destruir el archivo en disco ni marcarlo como consumido**, registrando el evento como `admin_inspeccion_preservada`.
+6. **Detección de Hash Idéntico y Reactivación de Documentos**:
+   * **Detección en tiempo real en Django Admin**: Al seleccionar un archivo en el formulario de alta, el navegador calcula su hash SHA-256 en cliente (WebCrypto API) y consulta el endpoint `check-file-hash/`. Si el archivo ya existía previamente, muestra un aviso inmediato con enlace directo al registro existente.
+   * **Reapertura directa y prevención de duplicados**: Si se envía el formulario con un archivo idéntico, Freedec redirige automáticamente al registro ya existente en lugar de crear duplicados en la base de datos.
+   * **Reactivación y re-cifrado seguro**: El administrador puede volver a subir el archivo original tanto desde el alta como desde el formulario de edición (`reupload_file`). El sistema genera una nueva DEK, re-cifra el archivo en disco, restablece el estado de consumo (`is_consumed=False`, `consumed_recipients=[]`) y genera nuevos sobres digitales.
+   * **Reemplazo exclusivo de destinatarios**: Al reactivar, la lista activa de destinatarios autorizados (`allowed_emails` y `user_envelopes`) se actualiza para incluir **únicamente los nuevos correos**, dejando de tener acceso los anteriores.
+   * **Aviso proactivo de accesos pendientes**: Si se intenta reactivar un documento que aún no ha finalizado (con destinatarios pendientes de acceder), el sistema advierte en tiempo real con un banner de alerta y un botón para reincorporar a los pendientes automáticamente a la lista para no revocar su acceso.
+   * **Preservación exhaustiva de la trazabilidad**: Todo el historial anterior de accesos, descargas y auditoría se mantiene intacto en `DocumentAccessLog`, registrándose un nuevo evento `reactivacion_documento` que detalla los destinatarios previos reemplazados y los nuevos habilitados.
 
 ---
 
@@ -443,13 +451,21 @@ Sharing sensitive files using static passwords or conventional channels creates 
    * Generates a 32-byte URL-safe token and a 6-digit OTP code with strict **15-minute expiration**.
    * Only the **SHA-256 hash** of the token is persisted in the database (Zero-Knowledge).
    * Direct Magic Links (`/freedec/consumir/?t={token}`) and OTP codes are delivered exclusively to the verified inbox.
-3. **Burn-After-Read (Destructive Consumption)**:
-   * As soon as an authorized recipient downloads the document, the physical `.enc` file is permanently deleted from storage (`document.encrypted_file.delete(save=False)`).
-   * The database record is updated to `is_consumed = True`, storing `consumed_by` and `consumed_at`.
+3. **Burn-After-Read & Configurable Destruction Policy**:
+   * **'Burn on First Access' (FIRST_ACCESS)**: As soon as the first authorized recipient downloads the document, the physical `.enc` file is permanently deleted from storage (`document.encrypted_file.delete(save=False)`).
+   * **'Burn When All Have Accessed' (ALL_RECIPIENTS)**: Each authorized recipient receives exactly one download. The encrypted file is preserved on disk until **all** authorized recipients have claimed their copy, after which physical destruction is executed.
+   * The database record is updated to `is_consumed = True`, logging full access audit records.
 4. **Post-Consumption Management**:
    * Subsequent access requests automatically email the requester with subject `[Freedec] Archivo ya retirado: {document_name}` stating that the document '{document_name}' was already claimed by `{consumed_by}` on `{consumed_at}` and directing them to ask that person for a copy.
 5. **Non-Destructive Administrative Access (Audit Bypass)**:
    * Authenticated staff in Django Admin can download the decrypted original document using the server key without destroying the file and without setting `is_consumed = True`, logging `admin_inspeccion_preservada`.
+6. **Identical Hash Detection and Document Reactivation**:
+   * **Real-time browser detection**: Selecting a file in the Django Admin upload form triggers an immediate client-side SHA-256 computation (WebCrypto API) against `check-file-hash/`. If the file was previously uploaded, a direct link notice to the existing record is displayed.
+   * **Direct redirect & duplicate prevention**: Submitting an identical file automatically redirects to the existing document record instead of creating redundant rows.
+   * **Secure reactivation & re-encryption**: Administrators can reactivate consumed files directly from the change view (`reupload_file`) or by submitting the file again. Freedec generates a new DEK, re-encrypts the file in storage, resets consumption flags (`is_consumed=False`, `consumed_recipients=[]`), and generates fresh user envelopes.
+   * **Exclusive recipient assignment**: Upon reactivation, the active recipient list (`allowed_emails` and `user_envelopes`) contains **only the newly specified recipients**. Previous recipients no longer have active access.
+   * **Proactive pending access warnings**: If reactivating a document that has not yet completed (recipients are still pending download), the system flashes a real-time warning banner with the list of pending recipients and a one-click button to re-add them to the recipient list so their access is not revoked.
+   * **Comprehensive audit preservation**: All prior access logs and history remain completely intact in `DocumentAccessLog`, and a new `reactivacion_documento` event is logged detailing previous replaced recipients and newly enabled ones.
 
 ---
 
