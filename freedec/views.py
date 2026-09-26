@@ -41,7 +41,7 @@ class AdminDocumentUploadView(APIView):
 
         validated_data = serializer.validated_data
         original_file = validated_data["original_file"]
-        plain_password = validated_data["plain_password"]
+        plain_password = validated_data.get("plain_password") or None
         allowed_emails = validated_data["allowed_emails"]
 
         service = DocumentManagementService()
@@ -74,6 +74,7 @@ class AdminDocumentUploadView(APIView):
             "file_hash": document.file_hash,
             "encrypted_file_url": encrypted_file_url,
             "access_code": raw_access_code,
+            "generated_password": getattr(document, "generated_password", plain_password),
             "allowed_emails": document.allowed_emails,
             "created_at": document.created_at.isoformat(),
         }

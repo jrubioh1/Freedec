@@ -1,6 +1,11 @@
+import logging
 import secrets
 from django.contrib.auth.hashers import check_password
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+
+logger = logging.getLogger(__name__)
 
 
 class EncryptedDocument(models.Model):
@@ -89,3 +94,25 @@ class EncryptedDocument(models.Model):
             return False
         normalized_email = email.strip().lower()
         return normalized_email in [e.strip().lower() for e in self.allowed_emails if isinstance(e, str)]
+
+
+@receiver(post_delete, sender=EncryptedDocument)
+def delete_physical_encrypted_file_on_delete(sender, instance, **kwargs):
+    """
+    Elimina automáticamente el archivo físico (.enc) del almacenamiento (disco / MEDIA_ROOT)
+    cuando se elimina el registro en la base de datos.
+    
+    Aplica tanto a borrados individuales (doc.delete()) como a borrados masivos
+    desde el panel de administración de Django o mediante QuerySet.delete().
+    """
+    if instance.encrypted_file:
+        try:
+            storage = instance.encrypted_file.storage
+            name = instance.encrypted_file.name
+            if name and storage.exists(name):
+                storage.delete(name)
+                logger.info(f"[FREEDEC AUDIT] Archivo físico eliminado del almacenamiento: {name}")
+        except Exception as exc:
+            logger.warning(
+                f"[FREEDEC WARNING] No se pudo eliminar el archivo físico {instance.encrypted_file}: {exc}"
+            )

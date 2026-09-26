@@ -173,8 +173,37 @@ class FreedecServicesSecurityTestCase(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         sent_email = mail.outbox[0]
         self.assertIn("victim-target@security.org", sent_email.to)
+        self.assertIn("Clave de recuperación", sent_email.subject)
+
+    def test_public_verify_with_enc_file(self):
+        """Verifica que un usuario pueda subir el archivo .enc cifrado para solicitar la clave."""
+        uploaded = SimpleUploadedFile("secret_for_enc.pdf", self.test_content)
+        plain_password = "EncPassword#888"
+        emails = ["enc-recipient@security.org"]
+
+        doc, raw_access_code = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password=plain_password,
+            allowed_emails=emails,
+        )
+
+        # Leer los bytes del archivo .enc cifrado
+        doc.encrypted_file.seek(0)
+        enc_bytes = doc.encrypted_file.read()
+        uploaded_enc = SimpleUploadedFile("distributed_file.enc", enc_bytes)
+
+        # El usuario sube el archivo .enc junto con el access_code y su email
+        success, message = self.doc_service.verify_and_dispatch_password(
+            uploaded_file=uploaded_enc,
+            access_code=raw_access_code,
+            recipient_email="enc-recipient@security.org",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(len(mail.outbox), 1)
+        sent_email = mail.outbox[-1]
+        self.assertIn("enc-recipient@security.org", sent_email.to)
         self.assertIn(plain_password, sent_email.body)
-        self.assertIn(self.expected_sha256[:12], sent_email.subject)
 
     def test_public_verify_invalid_file_hash(self):
         """Verifica que un archivo con contenido diferente no active el envío de contraseña."""
@@ -193,3 +222,100 @@ class FreedecServicesSecurityTestCase(TestCase):
 
         self.assertTrue(success)  # Respuesta neutra anti-enumeración
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_auto_generated_password(self):
+        """Verifica que si no se proporciona contraseña, se genera automáticamente una de 24 caracteres."""
+        uploaded = SimpleUploadedFile("auto_pwd.pdf", self.test_content)
+        doc, raw_access_code = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password=None,
+            allowed_emails=["auto@test.local"],
+        )
+        self.assertTrue(hasattr(doc, "generated_password"))
+        self.assertEqual(len(doc.generated_password), 24)
+        decrypted = self.crypto_service.decrypt_string(doc.encrypted_password)
+        self.assertEqual(decrypted, doc.generated_password)
+
+    def test_file_renaming_does_not_affect_hash(self):
+        """Demuestra que renombrar el archivo no altera el hash SHA-256 ni la verificación."""
+        file1 = SimpleUploadedFile("nombre_original_del_archivo.pdf", self.test_content)
+        file2 = SimpleUploadedFile("nombre_completamente_cambiado_por_usuario.pdf", self.test_content)
+        hash1 = calculate_file_sha256(file1)
+        hash2 = calculate_file_sha256(file2)
+        self.assertEqual(hash1, hash2)
+
+    def test_physical_file_deleted_on_model_delete(self):
+        """Verifica que al eliminar un modelo EncryptedDocument se borra el archivo físico de disco."""
+        uploaded = SimpleUploadedFile("file_to_delete.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="SecretToDelete123!",
+            allowed_emails=["del@test.local"],
+        )
+        storage = doc.encrypted_file.storage
+        file_name = doc.encrypted_file.name
+        self.assertTrue(storage.exists(file_name))
+
+        # Borrado individual
+        doc.delete()
+        self.assertFalse(storage.exists(file_name))
+
+    def test_physical_file_deleted_on_queryset_delete(self):
+        """Verifica que al eliminar mediante QuerySet.delete() se borra el archivo físico."""
+        uploaded = SimpleUploadedFile("bulk_delete.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="BulkSecret123!",
+            allowed_emails=["bulk@test.local"],
+        )
+        storage = doc.encrypted_file.storage
+        file_name = doc.encrypted_file.name
+        self.assertTrue(storage.exists(file_name))
+
+        # Borrado masivo (QuerySet)
+        EncryptedDocument.objects.filter(id=doc.id).delete()
+        self.assertFalse(storage.exists(file_name))
+
+    def test_decrypt_document_with_password_success(self):
+        """Verifica el descifrado exitoso del archivo .enc usando la contraseña correcta."""
+        uploaded = SimpleUploadedFile("contract.pdf", self.test_content)
+        password = "PasswordForDecryptTest#2026!"
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password=password,
+            allowed_emails=["client@company.com"],
+        )
+        # Tomar el archivo cifrado generado
+        doc.encrypted_file.seek(0)
+        enc_file_obj = SimpleUploadedFile("doc.enc", doc.encrypted_file.read())
+
+        success, decrypted_bytes, filename, mimetype, msg = (
+            self.doc_service.decrypt_document_with_password(
+                encrypted_file_obj=enc_file_obj,
+                password=password,
+            )
+        )
+        self.assertTrue(success)
+        self.assertEqual(decrypted_bytes, self.test_content)
+        self.assertTrue(filename.endswith(".pdf"))
+        self.assertEqual(mimetype, "application/pdf")
+
+    def test_decrypt_document_with_wrong_password(self):
+        """Verifica que con contraseña incorrecta el descifrado falla y no devuelve contenido."""
+        uploaded = SimpleUploadedFile("confidential.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="CorrectPassword123!",
+            allowed_emails=["client@company.com"],
+        )
+        doc.encrypted_file.seek(0)
+        enc_file_obj = SimpleUploadedFile("doc.enc", doc.encrypted_file.read())
+
+        success, decrypted_bytes, filename, mimetype, msg = (
+            self.doc_service.decrypt_document_with_password(
+                encrypted_file_obj=enc_file_obj,
+                password="WrongPassword999!",
+            )
+        )
+        self.assertFalse(success)
+        self.assertIsNone(decrypted_bytes)

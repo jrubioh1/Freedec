@@ -3,10 +3,20 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from freedec.gui_views import (
+    AdminUploadGuiView,
+    PublicDecryptGuiView,
+    PublicRequestGuiView,
+)
+
 urlpatterns = [
     # Panel de administración de Django
     path("admin/", admin.site.urls),
-    # Endpoints de la aplicación Freedec
+    # Portal Web HTML visual directamente accesible en la raíz
+    path("", PublicRequestGuiView.as_view(), name="root-public-gui"),
+    path("descifrar/", PublicDecryptGuiView.as_view(), name="root-public-decrypt-gui"),
+    path("admin-upload/", AdminUploadGuiView.as_view(), name="root-admin-upload-gui"),
+    # Endpoints y vistas bajo namespace de la aplicación Freedec
     path("api/freedec/", include("freedec.urls", namespace="freedec")),
 ]
 

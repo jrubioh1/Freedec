@@ -338,20 +338,16 @@
 <body>
     <header>
         <nav class="navbar">
-            <a href="{% url 'freedec:gui-public-request' %}" class="brand">
+            <a href="/" class="brand">
                 <div class="brand-icon">F</div>
                 <span>Freedec</span>
             </a>
             <div class="nav-links">
-                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link {% if request.resolver_match.url_name == 'gui-public-request' %}active{% endif %}">
-                    Recuperación Pública
-                </a>
-                <a href="{% url 'freedec:gui-admin-upload' %}" class="nav-link nav-btn {% if request.resolver_match.url_name == 'gui-admin-upload' %}active{% endif %}">
-                    Panel Admin (Subida)
-                </a>
-                <a href="/admin/" target="_blank" class="nav-link">
-                    Django Admin ↗
-                </a>
+                <a href="/" class="nav-link">🔑 Solicitar Contraseña</a>
+                <a href="/descifrar/" class="nav-link">🔓 Descifrar Archivo (.enc)</a>
+                <span class="badge badge-emerald" style="padding: 0.4rem 0.85rem; font-size: 0.8rem;">
+                    🛡️ Portal Seguro
+                </span>
             </div>
         </nav>
     </header>
@@ -361,7 +357,7 @@
     </main>
 
     <footer>
-        <p>Freedec &copy; 2026 &mdash; Cifrado AES-128-CBC + HMAC-SHA256 &bull; Identificación SHA-256 &bull; Zero-Knowledge</p>
+        <p>Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y Recuperación de Contraseñas</p>
     </footer>
 
     <script>

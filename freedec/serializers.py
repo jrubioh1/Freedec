@@ -27,10 +27,10 @@ class AdminDocumentUploadSerializer(serializers.Serializer):
     )
     plain_password = serializers.CharField(
         write_only=True,
-        required=True,
-        min_length=8,
+        required=False,
+        allow_blank=True,
         trim_whitespace=False,
-        help_text="Contraseña en texto plano para cifrar y almacenar de forma segura (mínimo 8 caracteres).",
+        help_text="Contraseña en texto plano para cifrar. Si se omite, se generará una automáticamente.",
     )
     allowed_emails = serializers.ListField(
         child=serializers.CharField(),
@@ -138,6 +138,10 @@ class PublicPasswordRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 f"El archivo supera el tamaño máximo permitido de {max_size // (1024 * 1024)} MB."
             )
+
+        name_lower = (value.name or "").lower()
+        if name_lower.endswith(".enc"):
+            return value
 
         # Validación estructural de formato (OWASP A03 / A08)
         try:

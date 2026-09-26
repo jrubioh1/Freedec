@@ -1,6 +1,10 @@
 from django.urls import path
 
-from freedec.gui_views import AdminUploadGuiView, PublicRequestGuiView
+from freedec.gui_views import (
+    AdminUploadGuiView,
+    PublicDecryptGuiView,
+    PublicRequestGuiView,
+)
 from freedec.views import AdminDocumentUploadView, PublicPasswordRequestView
 
 app_name = "freedec"
@@ -14,6 +18,12 @@ urlpatterns = [
         "",
         PublicRequestGuiView.as_view(),
         name="gui-public-request",
+    ),
+    # Portal público web para descifrar y descargar archivo .enc
+    path(
+        "descifrar/",
+        PublicDecryptGuiView.as_view(),
+        name="gui-public-decrypt",
     ),
     # Portal administrativo web para subida y cifrado (requiere autenticación)
     path(

@@ -303,13 +303,31 @@ Una vez acoplado, tendrás dos portales web accesibles desde cualquier navegador
 
 ---
 
-### B. Portal Público de Recuperación (`http://localhost:8000/freedec/`)
-1. El usuario final entra a `http://localhost:8000/freedec/`.
-2. Sube su copia del documento original.
-3. Pega el código de acceso que le entregó el administrador.
-4. Escribe su correo electrónico registrado.
-5. Pulsa **Validar Integridad y Despachar Contraseña**.
-6. **Resultado**: La web mostrará un mensaje de confirmación neutro y, si los datos son legítimos, el sistema enviará inmediatamente la contraseña descifrada a su correo.
+### B. Portal Público de Solicitud de Contraseña (`http://localhost:8000/`)
+1. El usuario final o destinatario entra a `http://localhost:8000/`.
+2. Sube su copia del documento (bien el archivo original o el archivo `.enc` que le facilitaron).
+3. Pega el código de acceso facilitado por el emisor.
+4. Escribe su correo electrónico registrado en la lista de autorización.
+5. Pulsa **Solicitar Contraseña**.
+6. **Resultado**: La web mostrará un mensaje de confirmación neutro (anti-enumeración de usuarios) y, si los datos son legítimos y el correo está autorizado, el sistema enviará de inmediato la contraseña a su buzón.
+
+---
+
+### C. Portal Público de Descifrado de Archivos `.enc` (`http://localhost:8000/descifrar/`)
+*¿Cómo se pasa del archivo `.enc` al documento original descifrado?*
+1. El usuario abre `http://localhost:8000/descifrar/` (o pulsa **🔓 Descifrar Archivo (.enc)** en la barra de navegación).
+2. Sube el archivo `.enc`.
+3. Pega la contraseña que acaba de recibir en su correo electrónico.
+4. Pulsa **Descifrar y Descargar Archivo Original**.
+5. **Resultado**: El sistema valida la contraseña en memoria, descifra el contenedor con AES-128/Fernet y descarga inmediatamente el archivo original con su nombre y extensión correcta (`documento.pdf`, `contrato.docx`, etc.).
+
+---
+
+### D. Descifrado por Terminal (Línea de Comandos CLI)
+Para administradores, scripts o usuarios avanzados:
+```bash
+poetry run python manage.py decrypt_document ruta/al/archivo.enc --password "TuContraseña" --output documento_recuperado.pdf
+```
 
 ---
 
@@ -425,8 +443,14 @@ Añade estas líneas dentro de tu VirtualHost (`/etc/apache2/sites-available/def
 * **Causa en producción**: No has configurado el alias `/media/` en tu servidor Nginx o Apache.
 
 ### ¿No llega el correo con la contraseña al destinatario?
-* **Causa en desarrollo**: Tienes `EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'`. La contraseña se imprime en la terminal negra donde corre Django, no se envía por internet.
-* **Causa en producción**: Revisa los parámetros SMTP (`EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_PORT`) o la carpeta de SPAM.
+* **Causa en desarrollo / sandbox por defecto**: Tienes `EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'`. La contraseña se imprime en la terminal donde corre Django, no se envía por internet.
+* **Solución**: Configura tu servidor SMTP en un archivo `.env` en la raíz (copiando `.env.example`). Dispones de plantillas para Gmail, Brevo, Outlook, etc. Puedes comprobar tu conexión SMTP al instante ejecutando:
+  ```bash
+  poetry run python manage.py test_smtp tu-correo@gmail.com
+  ```
+
+### ¿Qué sucede cuando elimino un registro de documento cifrado?
+* **Eliminación física garantizada**: Gracias al receptor de señales `post_delete`, cuando se elimina un registro (sea individualmente desde el Admin, por lotes o mediante `QuerySet.delete()`), el archivo físico `.enc` asociado en disco (`media_staging/encrypted_docs/`) se destruye automáticamente del sistema de archivos, garantizando el cumplimiento de borrado seguro y GDPR.
 
 ### ¿Error: `Tipo de archivo no permitido`?
 * **Causa**: Solo se admiten archivos **PDF, LibreOffice (.odt, .ods, .odp, .odg) y MS Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)**. No se permiten archivos de texto plano `.txt`, ejecutables `.exe` ni scripts `.sh`.
@@ -691,13 +715,31 @@ poetry run python manage.py runserver
 
 ---
 
-### B. Public Recovery Portal (`http://localhost:8000/freedec/`)
-1. The user navigates to `http://localhost:8000/freedec/`.
-2. Uploads their local copy of the file.
+### B. Public Password Request Portal (`http://localhost:8000/`)
+1. The user navigates to `http://localhost:8000/`.
+2. Uploads their file (either original document or `.enc` encrypted file).
 3. Pastes the secret access code provided by the administrator.
 4. Enters their registered email address.
-5. Clicks **Validate SHA-256 & Dispatch Password**.
-6. **Result**: A safe confirmation message appears and, if valid, the password is sent to their inbox.
+5. Clicks **Request Password**.
+6. **Result**: A safe confirmation message appears and, if authorized, the decryption password is sent to their inbox.
+
+---
+
+### C. Public Document Decryption Portal (`http://localhost:8000/descifrar/`)
+*How to turn the `.enc` file back into the original document?*
+1. The user navigates to `http://localhost:8000/descifrar/` (or clicks **🔓 Descifrar Archivo (.enc)** in the navbar).
+2. Uploads the `.enc` file.
+3. Pastes the password received in their email.
+4. Clicks **Descifrar y Descargar Archivo Original**.
+5. **Result**: The system decrypts the container in memory with Fernet and triggers an instant download of the original file with its correct extension (`document.pdf`, `contract.docx`, etc.).
+
+---
+
+### D. Command Line Decryption (CLI)
+For system administrators, automated pipelines, or offline recovery:
+```bash
+poetry run python manage.py decrypt_document path/to/file.enc --password "YourPassword" --output recovered_document.pdf
+```
 
 ---
 
@@ -791,8 +833,14 @@ server {
 * **In production**: Missing `/media/` alias in your Nginx or Apache configuration.
 
 ### Password email not received?
-* **In development**: You are using `EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'`. Passwords print to the terminal, not sent over SMTP.
-* **In production**: Check SMTP settings (`EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`) or spam folder.
+* **In default development / staging**: You have `EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'`. Passwords print to the console terminal running Django.
+* **Fix**: Configure real SMTP credentials in a `.env` file (copying `.env.example`). You can test your SMTP delivery immediately with:
+  ```bash
+  poetry run python manage.py test_smtp your-email@gmail.com
+  ```
+
+### What happens when an encrypted document record is deleted?
+* **Guaranteed Physical File Deletion**: A `post_delete` signal listener guarantees that whenever an `EncryptedDocument` record is deleted (from Django Admin single view, bulk actions, or ORM `QuerySet.delete()`), the underlying physical `.enc` file in `media_staging/encrypted_docs/` is immediately removed from disk for strict GDPR and privacy compliance.
 
 ### Error: `Tipo de archivo no permitido`?
 * **Cause**: Only **PDF, LibreOffice (.odt, .ods, .odp, .odg), and MS Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)** documents are allowed. Plain `.txt`, executables `.exe`, and scripts `.sh` are rejected.

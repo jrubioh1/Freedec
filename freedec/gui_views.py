@@ -1,9 +1,14 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.views import View
 
-from freedec.forms import AdminDocumentUploadForm, PublicPasswordRequestForm
+from freedec.forms import (
+    AdminDocumentUploadForm,
+    PublicDecryptDocumentForm,
+    PublicPasswordRequestForm,
+)
 from freedec.services import DocumentManagementService
 
 
@@ -113,3 +118,45 @@ class PublicRequestGuiView(View):
             "is_success": success,
         }
         return render(request, self.template_name, context, status=200 if success else 500)
+
+
+class PublicDecryptGuiView(View):
+    """
+    Vista Web GUI pública para que los destinatarios descifren y descarguen el documento original
+    subiendo el archivo .enc y proporcionando la contraseña recibida por correo.
+    """
+
+    template_name = "freedec/public_decrypt.html"
+
+    def get(self, request):
+        form = PublicDecryptDocumentForm()
+        return render(request, self.template_name, {"form": form})
+
+    def post(self, request):
+        form = PublicDecryptDocumentForm(request.POST, request.FILES)
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form}, status=400)
+
+        uploaded_file = form.cleaned_data["file"]
+        password = form.cleaned_data["password"]
+
+        service = DocumentManagementService()
+        success, decrypted_bytes, suggested_filename, mimetype, message = (
+            service.decrypt_document_with_password(
+                encrypted_file_obj=uploaded_file,
+                password=password,
+            )
+        )
+
+        if not success:
+            return render(
+                request,
+                self.template_name,
+                {"form": form, "error_message": message},
+                status=400,
+            )
+
+        # Entrega de descarga segura con tipo MIME adecuado y Content-Disposition
+        response = HttpResponse(decrypted_bytes, content_type=mimetype or "application/octet-stream")
+        response["Content-Disposition"] = f'attachment; filename="{suggested_filename}"'
+        return response

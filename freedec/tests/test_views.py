@@ -38,6 +38,7 @@ class FreedecViewsAPITestCase(APITestCase):
         self.public_request_url = reverse("freedec:public-request-password")
         self.gui_public_url = reverse("freedec:gui-public-request")
         self.gui_admin_url = reverse("freedec:gui-admin-upload")
+        self.gui_decrypt_url = reverse("freedec:gui-public-decrypt")
         self.sample_bytes = MINIMAL_VALID_PDF
         self.expected_hash = hashlib.sha256(self.sample_bytes).hexdigest()
 
@@ -132,7 +133,7 @@ class FreedecViewsAPITestCase(APITestCase):
         """El portal web público carga correctamente con código 200."""
         response = self.client.get(self.gui_public_url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Recuperación Segura de Contraseña")
+        self.assertContains(response, "Entrega Segura de Contraseña")
 
     def test_gui_admin_upload_unauthenticated_redirects(self):
         """El portal de subida web exige autenticación y redirige a login si no está autenticado."""
@@ -176,3 +177,56 @@ class FreedecViewsAPITestCase(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertContains(response, "auditor_a@corp.com", status_code=201)
         self.assertContains(response, "auditor_b@corp.com", status_code=201)
+
+    def test_gui_public_decrypt_get(self):
+        """La vista web para descifrar carga correctamente con código 200."""
+        response = self.client.get(self.gui_decrypt_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Descifrar Archivo Cifrado")
+
+    def test_gui_public_decrypt_post_success(self):
+        """Descifrar un archivo .enc con la contraseña correcta devuelve el archivo binario original."""
+        from freedec.services import DocumentManagementService
+        service = DocumentManagementService()
+        uploaded = SimpleUploadedFile("contract.pdf", self.sample_bytes)
+        doc, _ = service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="SecretDecrypt123!",
+            allowed_emails=["user@example.com"],
+        )
+        doc.encrypted_file.seek(0)
+        enc_file_data = SimpleUploadedFile("doc.enc", doc.encrypted_file.read())
+
+        response = self.client.post(
+            self.gui_decrypt_url,
+            {
+                "file": enc_file_data,
+                "password": "SecretDecrypt123!",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, self.sample_bytes)
+        self.assertIn("attachment;", response.headers.get("Content-Disposition", ""))
+
+    def test_gui_public_decrypt_post_wrong_password(self):
+        """Descifrar con contraseña incorrecta devuelve error 400 y mensaje en pantalla."""
+        from freedec.services import DocumentManagementService
+        service = DocumentManagementService()
+        uploaded = SimpleUploadedFile("secret.pdf", self.sample_bytes)
+        doc, _ = service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="CorrectPassword123!",
+            allowed_emails=["user@example.com"],
+        )
+        doc.encrypted_file.seek(0)
+        enc_file_data = SimpleUploadedFile("doc.enc", doc.encrypted_file.read())
+
+        response = self.client.post(
+            self.gui_decrypt_url,
+            {
+                "file": enc_file_data,
+                "password": "IncorrectPassword999!",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "La contraseña introducida no coincide", status_code=400)

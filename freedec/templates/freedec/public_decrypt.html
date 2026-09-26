@@ -1,0 +1,77 @@
+{% extends "freedec/base.html" %}
+
+{% block title %}Descifrar Documento (.enc) | Freedec{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1 class="card-title">
+                <span>🔓</span> Descifrar Archivo Cifrado
+            </h1>
+            <span class="badge badge-emerald">Descarga Segura</span>
+        </div>
+        <p class="card-subtitle">
+            Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le enviamos a su correo para recuperar y descargar el documento original.
+        </p>
+    </div>
+
+    {% if error_message %}
+        <div class="alert alert-error">
+            <div>
+                <strong>⚠️ Error en el descifrado:</strong><br>
+                {{ error_message }}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if form.non_field_errors %}
+        <div class="alert alert-error">
+            {% for error in form.non_field_errors %}
+                <div>{{ error }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label for="{{ form.file.id_for_label }}" class="form-label">
+                {{ form.file.label }} *
+            </label>
+            {{ form.file }}
+            {% if form.file.errors %}
+                <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
+                    {{ form.file.errors.0 }}
+                </div>
+            {% endif %}
+            <span class="form-help">{{ form.file.help_text }}</span>
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.password.id_for_label }}" class="form-label">
+                {{ form.password.label }} *
+            </label>
+            {{ form.password }}
+            {% if form.password.errors %}
+                <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
+                    {{ form.password.errors.0 }}
+                </div>
+            {% endif %}
+            <span class="form-help">{{ form.password.help_text }}</span>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
+            📥 Descifrar y Descargar Archivo Original
+        </button>
+    </form>
+
+    <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
+        <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ ¿Aún no tienes la contraseña?</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+            Si tienes el archivo pero no has solicitado la contraseña, ve a <a href="/" style="color: var(--accent-cyan); text-decoration: underline;">Solicitar Contraseña</a>, sube tu archivo e introduce tu código de acceso para recibirla en tu correo electrónico.
+        </p>
+    </div>
+</div>
+{% endblock %}
