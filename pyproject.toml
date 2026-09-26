@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "freedec"
+version = "0.1.0"
+description = "Servicio seguro de gestión, cifrado y recuperación descentralizada de documentos y contraseñas basado en hash SHA-256 para Django y DRF"
+authors = ["Jorge <jrubioh@pm.me>]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/jrubioh1/Freedec"
+keywords = ["django", "django-rest-framework", "security", "cryptography", "fernet", "sha256", "zero-knowledge"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 5.1",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+]
+packages = [{include = "freedec"}]
+include = [
+    "freedec/templates/**/*",
+    "LICENSE",
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+django = "^5.1"
+djangorestframework = "^3.15"
+cryptography = "^43.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-django = "^4.9"
+black = "^24.8"
+flake8 = "^7.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
