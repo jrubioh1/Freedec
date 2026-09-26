@@ -109,11 +109,16 @@ class PublicPasswordRequestView(APIView):
         access_code = serializer.validated_data["access_code"]
         email = serializer.validated_data["email"]
 
+        ip = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR"))
+        if ip and "," in ip:
+            ip = ip.split(",")[0].strip()
+
         service = DocumentManagementService()
         success, message = service.verify_and_dispatch_password(
             uploaded_file=uploaded_file,
             access_code=access_code,
             recipient_email=email,
+            client_ip=ip,
         )
 
         # Si ocurrió un error de infraestructura de correo o error de configuración

@@ -1,9 +1,10 @@
 from django import forms
 from django.contrib import admin, messages
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from freedec.models import EncryptedDocument
+from freedec.models import DocumentAccessLog, EncryptedDocument
 from freedec.services import DocumentManagementService
 from freedec.validators import normalize_and_validate_email_list, validate_document_file
 
@@ -187,20 +188,40 @@ class EncryptedDocumentChangeForm(forms.ModelForm):
         return normalize_and_validate_email_list(raw_entries)
 
 
+class DocumentAccessLogInline(admin.TabularInline):
+    """Muestra el historial y la auditoría de accesos dentro de la vista del documento."""
+
+    model = DocumentAccessLog
+    extra = 0
+    can_delete = False
+    readonly_fields = ("email", "action", "ip_address", "timestamp")
+    fields = ("timestamp", "email", "action", "ip_address")
+    verbose_name = "Registro de acceso"
+    verbose_name_plural = "Historial de accesos y trazabilidad de clave"
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(EncryptedDocument)
 class EncryptedDocumentAdmin(admin.ModelAdmin):
     """
     Panel de administración para EncryptedDocument integrado nativamente en Django Admin.
     """
 
+    inlines = [DocumentAccessLogInline]
+
     list_display = (
+        "original_filename",
         "short_file_hash",
-        "allowed_emails_summary",
+        "access_count",
+        "last_accessed_at",
+        "last_accessed_by",
         "download_link",
-        "created_at",
+        "delete_action_button",
     )
-    list_filter = ("created_at",)
-    search_fields = ("file_hash",)
+    list_filter = ("created_at", "last_accessed_at")
+    search_fields = ("original_filename", "file_hash", "last_accessed_by")
 
     def get_form(self, request, obj=None, **kwargs):
         if obj is None:
@@ -220,10 +241,10 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             )
         return (
             (
-                "Identificación Criptográfica",
+                "Nombre e Identificación Criptográfica",
                 {
-                    "fields": ("file_hash",),
-                    "description": "Hash SHA-256 del archivo original calculado en la subida.",
+                    "fields": ("original_filename", "file_hash"),
+                    "description": "Nombre original y hash SHA-256 del archivo calculado en la subida.",
                 },
             ),
             (
@@ -241,9 +262,16 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 },
             ),
             (
-                "Auditoría y Trazabilidad",
+                "Auditoría y Trazabilidad de Accesos",
                 {
-                    "fields": ("created_at", "updated_at"),
+                    "fields": (
+                        "access_count",
+                        "last_accessed_at",
+                        "last_accessed_by",
+                        "created_at",
+                        "updated_at",
+                    ),
+                    "description": "Registro de actividad y fecha del último acceso o despacho de contraseña.",
                 },
             ),
         )
@@ -252,10 +280,14 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         if obj is None:
             return ()
         return (
+            "original_filename",
             "file_hash",
             "encrypted_file",
             "encrypted_password",
             "access_code",
+            "access_count",
+            "last_accessed_at",
+            "last_accessed_by",
             "created_at",
             "updated_at",
         )
@@ -276,6 +308,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
 
             obj.pk = doc.pk
             obj.id = doc.id
+            obj.original_filename = doc.original_filename
             obj.file_hash = doc.file_hash
             obj.encrypted_file = doc.encrypted_file
             obj.access_code = doc.access_code
@@ -306,20 +339,23 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
 
             download_html = ""
             if obj.encrypted_file:
+                enc_name = f"{obj.original_filename}.enc"
                 download_html = format_html(
                     "<strong>📥 ARCHIVO CIFRADO PARA DISTRIBUCIÓN:</strong><br>"
                     "<div style='margin: 8px 0;'>"
-                    "<a href='{}' download class='button' style='background: #0284c7; color: white; padding: 6px 14px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;'>"
-                    "📥 Descargar Archivo Cifrado (.enc)"
+                    "<a href='{}' download='{}' class='button' style='background: #0284c7; color: white; padding: 6px 14px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;'>"
+                    "📥 Descargar Archivo Cifrado ({})"
                     "</a>"
                     "</div><br>",
                     obj.encrypted_file.url,
+                    enc_name,
+                    enc_name,
                 )
 
             messages.success(
                 request,
                 format_html(
-                    "<strong>✅ Documento cifrado y registrado exitosamente (SHA-256: {})</strong><br><br>"
+                    "<strong>✅ Documento '{}' cifrado y registrado exitosamente (SHA-256: {})</strong><br><br>"
                     "{}"
                     "<strong>🔑 CÓDIGO SECRETO DE ACCESO (Zero-Knowledge):</strong><br>"
                     "<div style='font-size: 1.15rem; font-family: monospace; background: #0f172a; color: #fde68a; padding: 10px; border-radius: 6px; margin: 6px 0; border: 1px solid #f59e0b; user-select: all;'>"
@@ -327,6 +363,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                     "</div><br>"
                     "{}"
                     "<em>⚠️ Guarde y entregue el código de acceso al destinatario por canal seguro (Signal, SMS o en persona). La contraseña le será enviada por correo cuando la solicite.</em>",
+                    obj.original_filename,
                     obj.file_hash,
                     download_html,
                     raw_code,
@@ -337,18 +374,39 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
 
     @admin.display(description="Hash SHA-256")
     def short_file_hash(self, obj):
-        return f"{obj.file_hash[:16]}...{obj.file_hash[-8:]}"
-
-    @admin.display(description="Correos Autorizados")
-    def allowed_emails_summary(self, obj):
-        count = len(obj.allowed_emails) if isinstance(obj.allowed_emails, list) else 0
-        return f"{count} correo(s) registrado(s)"
+        return f"{obj.file_hash[:12]}...{obj.file_hash[-6:]}"
 
     @admin.display(description="Descargar Cifrado")
     def download_link(self, obj):
         if obj.encrypted_file:
+            enc_name = f"{obj.original_filename}.enc"
             return format_html(
-                '<a href="{}" download class="button" style="padding: 4px 10px; font-size: 0.8rem; background: #0284c7; color: white; border-radius: 4px; text-decoration: none; font-weight: bold;">📥 Descargar .enc</a>',
+                '<a href="{}" download="{}" class="button" style="padding: 4px 10px; font-size: 0.8rem; background: #0284c7; color: white; border-radius: 4px; text-decoration: none; font-weight: bold;">📥 {}</a>',
                 obj.encrypted_file.url,
+                enc_name,
+                enc_name,
             )
         return "—"
+
+    @admin.display(description="Eliminar")
+    def delete_action_button(self, obj):
+        url = reverse("admin:freedec_encrypteddocument_delete", args=[obj.pk])
+        return format_html(
+            '<a class="button" href="{}" style="background-color: #ba2121; color: white; padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8rem; font-weight: bold;">🗑️ Eliminar</a>',
+            url,
+        )
+
+
+@admin.register(DocumentAccessLog)
+class DocumentAccessLogAdmin(admin.ModelAdmin):
+    """
+    Panel de auditoría histórica para ver todos los accesos a documentos y peticiones de claves.
+    """
+
+    list_display = ("document", "email", "action", "ip_address", "timestamp")
+    list_filter = ("action", "timestamp")
+    search_fields = ("email", "document__original_filename", "document__file_hash", "ip_address")
+    readonly_fields = ("document", "email", "action", "ip_address", "timestamp")
+
+    def has_add_permission(self, request):
+        return False

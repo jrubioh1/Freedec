@@ -84,6 +84,14 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
         return render(request, self.template_name, context, status=201)
 
 
+def get_client_ip(request):
+    """Obtiene la IP remota del cliente considerando cabeceras de proxy inverso."""
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
 class PublicRequestGuiView(View):
     """
     Vista Web GUI pública para que los destinatarios suban su copia del archivo,
@@ -110,6 +118,7 @@ class PublicRequestGuiView(View):
             uploaded_file=uploaded_file,
             access_code=access_code,
             recipient_email=email,
+            client_ip=get_client_ip(request),
         )
 
         context = {
@@ -145,6 +154,7 @@ class PublicDecryptGuiView(View):
             service.decrypt_document_with_password(
                 encrypted_file_obj=uploaded_file,
                 password=password,
+                client_ip=get_client_ip(request),
             )
         )
 

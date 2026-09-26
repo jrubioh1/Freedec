@@ -28,6 +28,12 @@ class EncryptedDocument(models.Model):
        - Almacena las direcciones de correo autorizadas, siempre normalizadas en minúsculas.
     """
 
+    original_filename = models.CharField(
+        max_length=255,
+        default="documento",
+        verbose_name="Nombre original del archivo",
+        help_text="Nombre del archivo original subido por el administrador.",
+    )
     file_hash = models.CharField(
         max_length=64,
         unique=True,
@@ -49,6 +55,24 @@ class EncryptedDocument(models.Model):
         default=list,
         help_text="Lista de correos electrónicos autorizados en formato JSON (minúsculas).",
     )
+    access_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Veces accedido",
+        help_text="Número total de solicitudes de contraseña o descifrados autorizados.",
+    )
+    last_accessed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Último acceso",
+        help_text="Fecha y hora de la última solicitud de contraseña o descifrado.",
+    )
+    last_accessed_by = models.CharField(
+        max_length=254,
+        blank=True,
+        null=True,
+        verbose_name="Último correo que accedió",
+        help_text="Dirección de correo del último usuario que solicitó la clave.",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="Fecha y hora de registro y cifrado del documento.",
@@ -64,7 +88,7 @@ class EncryptedDocument(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"EncryptedDocument(hash={self.file_hash[:12]}..., created={self.created_at:%Y-%m-%d %H:%M})"
+        return f"{self.original_filename} (hash={self.file_hash[:8]}...)"
 
     def verify_access_code(self, raw_access_code: str) -> bool:
         """
@@ -94,6 +118,47 @@ class EncryptedDocument(models.Model):
             return False
         normalized_email = email.strip().lower()
         return normalized_email in [e.strip().lower() for e in self.allowed_emails if isinstance(e, str)]
+
+
+class DocumentAccessLog(models.Model):
+    """
+    Registro histórico de auditoría de accesos a un documento cifrado.
+    Registra cada vez que un destinatario autorizado solicita la contraseña o descifra el archivo.
+    """
+
+    document = models.ForeignKey(
+        EncryptedDocument,
+        on_delete=models.CASCADE,
+        related_name="access_logs",
+        verbose_name="Documento",
+    )
+    email = models.CharField(
+        max_length=254,
+        verbose_name="Correo solicitante",
+    )
+    action = models.CharField(
+        max_length=50,
+        default="solicitud_clave",
+        verbose_name="Acción",
+        help_text="Tipo de evento: 'solicitud_clave' o 'descifrado'.",
+    )
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name="Dirección IP",
+    )
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha y hora de acceso",
+    )
+
+    class Meta:
+        verbose_name = "Registro de Auditoría de Acceso"
+        verbose_name_plural = "Registros de Auditoría de Accesos"
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"[{self.timestamp:%Y-%m-%d %H:%M:%S}] {self.email} -> {self.action} ({self.document.original_filename})"
 
 
 @receiver(post_delete, sender=EncryptedDocument)

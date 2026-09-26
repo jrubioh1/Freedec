@@ -1,6 +1,7 @@
 import hashlib
 import io
 import logging
+import os
 import secrets
 import string
 import zipfile
@@ -13,8 +14,9 @@ from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.mail import BadHeaderError, send_mail
 from django.db import transaction
+from django.utils import timezone
 
-from freedec.models import EncryptedDocument
+from freedec.models import DocumentAccessLog, EncryptedDocument
 from freedec.validators import validate_document_file, validate_safe_email
 
 logger = logging.getLogger(__name__)
@@ -236,8 +238,15 @@ class DocumentManagementService:
         encrypted_bytes = self.crypto_service.encrypt_bytes(file_bytes)
 
         # 3. Empaquetar el archivo cifrado para almacenamiento seguro en disco
-        # Se utiliza el hash SHA-256 como nombre para neutralizar cualquier vector de Path Traversal
-        encrypted_content = ContentFile(encrypted_bytes, name=f"{file_hash}.enc")
+        # Preserva el nombre del archivo original de forma segura (anti-Path Traversal)
+        raw_name = getattr(original_file, "name", "documento") or "documento"
+        safe_original_name = os.path.basename(str(raw_name)).strip()
+        if not safe_original_name or safe_original_name == ".":
+            safe_original_name = "documento.pdf"
+
+        # Nombre del archivo cifrado con extensión .enc (ej. presupuesto.pdf.enc)
+        enc_filename = f"{safe_original_name}.enc"
+        encrypted_content = ContentFile(encrypted_bytes, name=enc_filename)
 
         # 4. Generación de código de acceso de alta entropía (Zero-Knowledge)
         raw_access_code = secrets.token_urlsafe(32)
@@ -263,8 +272,9 @@ class DocumentManagementService:
             )
         )
 
-        # 7. Creación atómica del registro
+        # 7. Creación atómica del registro con nombre original
         document = EncryptedDocument.objects.create(
+            original_filename=safe_original_name,
             file_hash=file_hash,
             encrypted_file=encrypted_content,
             access_code=hashed_access_code,
@@ -281,6 +291,7 @@ class DocumentManagementService:
         uploaded_file,
         access_code: str,
         recipient_email: str,
+        client_ip: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Flujo de verificación pública y envío automatizado de la clave descifrada.
@@ -381,15 +392,37 @@ class DocumentManagementService:
             )
             return False, "Error interno en el procesamiento criptográfico."
 
+        # Registrar auditoría y trazabilidad de acceso
+        now = timezone.now()
+        document.last_accessed_at = now
+        document.last_accessed_by = normalized_email
+        document.access_count += 1
+        document.save(update_fields=["last_accessed_at", "last_accessed_by", "access_count"])
+
+        try:
+            DocumentAccessLog.objects.create(
+                document=document,
+                email=normalized_email,
+                action="solicitud_clave",
+                ip_address=client_ip,
+            )
+        except Exception as exc:
+            logger.warning(f"[FREEDEC] No se pudo guardar registro de auditoría: {exc}")
+
         # 6. Envío exclusivo y automatizado de la clave mediante django.core.mail
-        subject = "[Freedec] Clave de recuperación para su documento"
+        doc_display_name = document.original_filename or f"Documento_{calculated_hash[:8]}"
+        subject = f"[Freedec] Clave de recuperación para su documento: {doc_display_name}"
         message_body = (
             f"Estimado usuario,\n\n"
             f"Se ha verificado con éxito su documento y su autorización de acceso.\n\n"
+            f"📄 Nombre del archivo: {doc_display_name}\n\n"
             f"Su contraseña o clave de descifrado es:\n"
             f"--------------------------------------------------\n"
             f"{plain_password}\n"
             f"--------------------------------------------------\n\n"
+            f"Para descifrar su archivo '{doc_display_name}.enc' y recuperar el documento original sin cifrar, "
+            f"puede acceder al portal público en la pestaña 'Descifrar Archivo (.enc)':\n"
+            f"http://127.0.0.1:8000/descifrar/\n\n"
             f"Por motivos de seguridad, no comparta esta clave con terceros.\n\n"
             f"Atentamente,\n"
             f"Sistema Automatizado Freedec"
@@ -406,7 +439,7 @@ class DocumentManagementService:
             )
             logger.info(
                 f"[FREEDEC AUDIT] Clave enviada exitosamente al correo autorizado '{normalized_email}' "
-                f"para el hash {calculated_hash}."
+                f"para el archivo '{doc_display_name}' (hash {calculated_hash})."
             )
         except BadHeaderError as exc:
             logger.error(f"[FREEDEC SECURITY CRITICAL] Intento de inyección de cabeceras en correo: {exc}")
@@ -421,6 +454,7 @@ class DocumentManagementService:
         self,
         encrypted_file_obj,
         password: str,
+        client_ip: Optional[str] = None,
     ) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str], str]:
         """
         Descifra un archivo .enc utilizando la contraseña suministrada por el usuario.
@@ -432,7 +466,7 @@ class DocumentManagementService:
         4. Descifra la contraseña almacenada en la base de datos y la compara en tiempo constante
            con la contraseña introducida por el usuario (anti-Timing Attacks).
         5. Si la clave coincide, detecta la extensión y el mimetype original (PDF, Office, etc.)
-           y entrega el archivo descifrado listo para su descarga.
+           y entrega el archivo descifrado listo para su descarga con su nombre original.
         6. Si la clave no coincide o el archivo no existe, deniega la petición.
         
         Retorna:
@@ -477,9 +511,25 @@ class DocumentManagementService:
             logger.warning(f"[FREEDEC SECURITY] Contraseña incorrecta para el documento con hash {calculated_hash}.")
             return False, None, None, None, "La contraseña introducida no coincide con la clave del documento."
 
+        # Registrar auditoría y trazabilidad del descifrado
+        now = timezone.now()
+        document.last_accessed_at = now
+        document.access_count += 1
+        document.save(update_fields=["last_accessed_at", "access_count"])
+
+        try:
+            DocumentAccessLog.objects.create(
+                document=document,
+                email=document.last_accessed_by or "descifrado_directo",
+                action="descifrado",
+                ip_address=client_ip,
+            )
+        except Exception as exc:
+            logger.warning(f"[FREEDEC] No se pudo guardar registro de auditoría de descifrado: {exc}")
+
         # 4. Detección de extensión y tipo MIME
         ext, mimetype = detect_file_extension_and_mimetype(decrypted_bytes)
-        suggested_filename = f"documento_{calculated_hash[:8]}{ext}"
+        suggested_filename = document.original_filename or f"documento_{calculated_hash[:8]}{ext}"
 
-        logger.info(f"[FREEDEC AUDIT] Documento con hash {calculated_hash} descifrado exitosamente con su contraseña.")
+        logger.info(f"[FREEDEC AUDIT] Documento '{suggested_filename}' descifrado exitosamente con su contraseña.")
         return True, decrypted_bytes, suggested_filename, mimetype, "Documento descifrado correctamente."

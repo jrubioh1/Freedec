@@ -319,3 +319,69 @@ class FreedecServicesSecurityTestCase(TestCase):
         )
         self.assertFalse(success)
         self.assertIsNone(decrypted_bytes)
+
+    def test_original_filename_and_enc_naming(self):
+        """El registro guarda el nombre original y el archivo cifrado preserva el nombre con sufijo .enc."""
+        uploaded = SimpleUploadedFile("balance_anual_2026.pdf", self.test_content)
+        doc, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="Password123!",
+            allowed_emails=["finance@test.local"],
+        )
+        self.assertEqual(doc.original_filename, "balance_anual_2026.pdf")
+        self.assertIn("balance_anual_2026.pdf", doc.encrypted_file.name)
+        self.assertTrue(doc.encrypted_file.name.endswith(".enc"))
+
+    def test_access_tracking_and_audit_logging(self):
+        """Verifica que al solicitar la contraseña se actualiza el contador, fecha de acceso y tabla de auditoría."""
+        from freedec.models import DocumentAccessLog
+        uploaded = SimpleUploadedFile("contrato_rrhh.pdf", self.test_content)
+        doc, access_code = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="SecretHR#2026!",
+            allowed_emails=["empleado@empresa.com"],
+        )
+        self.assertEqual(doc.access_count, 0)
+        self.assertIsNone(doc.last_accessed_at)
+
+        # Simular petición de contraseña con IP
+        uploaded.seek(0)
+        success, _ = self.doc_service.verify_and_dispatch_password(
+            uploaded_file=uploaded,
+            access_code=access_code,
+            recipient_email="empleado@empresa.com",
+            client_ip="192.168.1.50",
+        )
+        self.assertTrue(success)
+
+        doc.refresh_from_db()
+        self.assertEqual(doc.access_count, 1)
+        self.assertIsNotNone(doc.last_accessed_at)
+        self.assertEqual(doc.last_accessed_by, "empleado@empresa.com")
+
+        # Verificar registro en DocumentAccessLog
+        logs = DocumentAccessLog.objects.filter(document=doc)
+        self.assertEqual(logs.count(), 1)
+        log = logs.first()
+        self.assertEqual(log.email, "empleado@empresa.com")
+        self.assertEqual(log.action, "solicitud_clave")
+        self.assertEqual(log.ip_address, "192.168.1.50")
+
+    def test_email_specifies_document_name(self):
+        """El correo enviado al destinatario indica claramente el nombre del documento."""
+        uploaded = SimpleUploadedFile("auditoria_seguridad.pdf", self.test_content)
+        doc, access_code = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded,
+            plain_password="AuditPassword777!",
+            allowed_emails=["auditor@ciberseguridad.local"],
+        )
+        uploaded.seek(0)
+        self.doc_service.verify_and_dispatch_password(
+            uploaded_file=uploaded,
+            access_code=access_code,
+            recipient_email="auditor@ciberseguridad.local",
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertIn("auditoria_seguridad.pdf", sent.subject)
+        self.assertIn("auditoria_seguridad.pdf", sent.body)
