@@ -17,12 +17,25 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
 
     def get(self, request):
         form = AdminDocumentUploadForm()
-        return render(request, self.template_name, {"form": form})
+        return render(request, self.template_name, {
+            "form": form,
+            "submitted_emails": [""],
+        })
 
     def post(self, request):
         form = AdminDocumentUploadForm(request.POST, request.FILES)
+        submitted_emails = request.POST.getlist("allowed_emails")
+        if not submitted_emails:
+            single_val = request.POST.get("allowed_emails", "")
+            submitted_emails = [single_val] if single_val else [""]
+
         if not form.is_valid():
-            return render(request, self.template_name, {"form": form}, status=400)
+            return render(
+                request,
+                self.template_name,
+                {"form": form, "submitted_emails": submitted_emails},
+                status=400,
+            )
 
         original_file = form.cleaned_data["original_file"]
         plain_password = form.cleaned_data["plain_password"]
@@ -38,10 +51,20 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
             )
         except ValidationError as exc:
             form.add_error(None, str(exc.message if hasattr(exc, "message") else exc))
-            return render(request, self.template_name, {"form": form}, status=400)
+            return render(
+                request,
+                self.template_name,
+                {"form": form, "submitted_emails": submitted_emails},
+                status=400,
+            )
         except Exception as exc:
             form.add_error(None, f"Error interno en el procesamiento: {exc}")
-            return render(request, self.template_name, {"form": form}, status=500)
+            return render(
+                request,
+                self.template_name,
+                {"form": form, "submitted_emails": submitted_emails},
+                status=500,
+            )
 
         encrypted_url = None
         if document.encrypted_file:

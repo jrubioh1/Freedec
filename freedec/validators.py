@@ -1,4 +1,6 @@
+import ast
 import io
+import json
 import os
 import zipfile
 from django.conf import settings
@@ -55,6 +57,77 @@ def validate_safe_email(email: str) -> str:
     validator(email_clean)
 
     return email_clean.lower()
+
+
+def normalize_and_validate_email_list(raw_input) -> list[str]:
+    """
+    Normaliza y valida una colección de correos electrónicos provista en múltiples formatos:
+    - Lista o tupla de correos: ['user1@corp.com', 'user2@corp.com']
+    - Cadena JSON: '["user1@corp.com", "user2@corp.com"]'
+    - Cadena de texto plano separada por comas, punto y coma o saltos de línea
+    - Múltiples inputs de formulario web ('allowed_emails')
+    - Representación literal de lista de Python: "['user1@corp.com', 'user2@corp.com']"
+
+    Aplica sanitización anti-CRLF y validación RFC a cada entrada.
+    Retorna la lista ordenada y desduplicada en minúsculas.
+    """
+    if raw_input is None:
+        raise ValidationError("Debe indicar al menos una dirección de correo válida.")
+
+    candidates = []
+
+    def extract_candidates(item):
+        if item is None:
+            return
+        if isinstance(item, (list, tuple, set)):
+            for sub_item in item:
+                extract_candidates(sub_item)
+            return
+
+        item_str = str(item).strip()
+        if not item_str:
+            return
+
+        # Detección de cadenas que representen listas JSON o literales Python
+        if (item_str.startswith("[") and item_str.endswith("]")) or (
+            item_str.startswith("(") and item_str.endswith(")")
+        ):
+            try:
+                parsed = json.loads(item_str)
+                if isinstance(parsed, (list, tuple)):
+                    extract_candidates(parsed)
+                    return
+            except Exception:
+                pass
+
+            try:
+                parsed = ast.literal_eval(item_str)
+                if isinstance(parsed, (list, tuple, set)):
+                    extract_candidates(parsed)
+                    return
+            except Exception:
+                pass
+
+        # Descomposición por comas, puntos y comas o saltos de línea
+        for part in item_str.replace(";", ",").replace("\n", ",").split(","):
+            cleaned_part = part.strip().strip("'\"")
+            if cleaned_part:
+                candidates.append(cleaned_part)
+
+    extract_candidates(raw_input)
+
+    if not candidates:
+        raise ValidationError("Debe indicar al menos una dirección de correo válida.")
+
+    normalized = set()
+    for email_cand in candidates:
+        clean = validate_safe_email(email_cand)
+        normalized.add(clean)
+
+    if not normalized:
+        raise ValidationError("Debe indicar al menos una dirección de correo válida.")
+
+    return sorted(list(normalized))
 
 
 def validate_document_file(file_obj):

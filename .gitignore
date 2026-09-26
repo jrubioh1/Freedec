@@ -36,8 +36,9 @@ ENV/
 # Django
 *.log
 local_settings.py
-db.sqlite3
-db.sqlite3-journal
+*.sqlite3
+*.sqlite3-journal
+sample_document.pdf
 media/
 encrypted_docs/
 staticfiles/

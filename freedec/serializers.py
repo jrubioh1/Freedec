@@ -2,7 +2,11 @@ import json
 from django.conf import settings
 from rest_framework import serializers
 
-from freedec.validators import validate_document_file, validate_safe_email
+from freedec.validators import (
+    normalize_and_validate_email_list,
+    validate_document_file,
+    validate_safe_email,
+)
 
 DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024
 
@@ -37,25 +41,34 @@ class AdminDocumentUploadSerializer(serializers.Serializer):
 
     def to_internal_value(self, data):
         """
-        Soporte robusto para Multipart Form-Data:
-        Si 'allowed_emails' se envía como cadena JSON o valores separados por coma,
-        se deserializa limpiamente a una lista de Python antes de la validación estándar.
+        Soporte robusto para Multipart Form-Data y JSON:
+        Si 'allowed_emails' se envía como QueryDict con múltiples campos, lista nativa,
+        cadena JSON, valores separados por comas o representación literal,
+        se deserializa y normaliza limpiamente.
         """
         mutable_data = data.copy() if hasattr(data, "copy") else dict(data)
-        raw_emails = mutable_data.get("allowed_emails")
 
-        if isinstance(raw_emails, str):
+        if hasattr(data, "getlist"):
+            raw_list = data.getlist("allowed_emails")
+            if len(raw_list) > 1:
+                raw_emails = raw_list
+            elif len(raw_list) == 1:
+                raw_emails = raw_list[0]
+            else:
+                raw_emails = mutable_data.get("allowed_emails")
+        else:
+            raw_emails = mutable_data.get("allowed_emails")
+
+        if raw_emails is not None:
             try:
-                parsed = json.loads(raw_emails)
-                if isinstance(parsed, list):
-                    mutable_data["allowed_emails"] = parsed
+                normalized = normalize_and_validate_email_list(raw_emails)
+                if hasattr(mutable_data, "setlist"):
+                    mutable_data.setlist("allowed_emails", normalized)
                 else:
-                    mutable_data["allowed_emails"] = [raw_emails]
-            except (json.JSONDecodeError, ValueError):
-                # Soporte para lista separada por comas
-                mutable_data["allowed_emails"] = [
-                    e.strip() for e in raw_emails.split(",") if e.strip()
-                ]
+                    mutable_data["allowed_emails"] = normalized
+            except Exception:
+                # Se delega a la validación estándar del serializador para emitir mensajes adecuados
+                pass
 
         return super().to_internal_value(mutable_data)
 
@@ -84,18 +97,11 @@ class AdminDocumentUploadSerializer(serializers.Serializer):
         Valida, desinfecta contra CRLF y normaliza en minúsculas todas las
         direcciones de correo electrónico autorizadas.
         """
-        if not value:
-            raise serializers.ValidationError("Debe especificar al menos un correo autorizado.")
-
-        normalized_emails = set()
-        for raw_email in value:
-            try:
-                clean_email = validate_safe_email(raw_email)
-                normalized_emails.add(clean_email)
-            except Exception as exc:
-                raise serializers.ValidationError(f"Correo inválido '{raw_email}': {exc}")
-
-        return sorted(list(normalized_emails))
+        try:
+            return normalize_and_validate_email_list(value)
+        except Exception as exc:
+            msg = getattr(exc, "message", str(exc))
+            raise serializers.ValidationError(msg)
 
 
 class PublicPasswordRequestSerializer(serializers.Serializer):

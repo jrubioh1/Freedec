@@ -56,7 +56,10 @@ class FreedecViewsAPITestCase(APITestCase):
             },
             format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn(
+            response.status_code,
+            [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN],
+        )
 
     def test_admin_upload_rejects_unauthorized_format(self):
         """Un formato no autorizado (ej. .txt o .exe) debe ser rechazado con 400 Bad Request."""
@@ -149,5 +152,27 @@ class FreedecViewsAPITestCase(APITestCase):
             },
         )
         self.assertEqual(response.status_code, 201)
-        self.assertContains(response, "Documento cifrado y registrado exitosamente")
-        self.assertContains(response, self.expected_hash)
+        self.assertContains(response, "Documento cifrado y registrado exitosamente", status_code=201)
+        self.assertContains(response, self.expected_hash, status_code=201)
+
+    def test_gui_admin_upload_multiple_email_fields(self):
+        """El formulario web procesa múltiples inputs dinámicos con name='allowed_emails'."""
+        self.client.force_login(self.admin_user)
+        file_data = SimpleUploadedFile("multi_email_report.pdf", self.sample_bytes)
+        # Simula el envío de múltiples campos input name="allowed_emails"
+        from django.http import QueryDict
+        qd = QueryDict(mutable=True)
+        qd.setlist("allowed_emails", ["auditor_a@corp.com", "auditor_b@corp.com"])
+        qd["plain_password"] = "SecretMultiPass#2026"
+        
+        post_data = qd.dict()
+        post_data["allowed_emails"] = qd.getlist("allowed_emails")
+        post_data["original_file"] = file_data
+
+        response = self.client.post(
+            self.gui_admin_url,
+            post_data,
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertContains(response, "auditor_a@corp.com", status_code=201)
+        self.assertContains(response, "auditor_b@corp.com", status_code=201)

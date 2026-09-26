@@ -116,16 +116,69 @@
             </div>
 
             <div class="form-group">
-                <label for="{{ form.allowed_emails.id_for_label }}" class="form-label">
-                    {{ form.allowed_emails.label }} *
-                </label>
-                {{ form.allowed_emails }}
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
+                    <label class="form-label" style="margin-bottom: 0;">
+                        Correos Electrónicos Autorizados *
+                    </label>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);">
+                        Destinatarios autorizados
+                    </span>
+                </div>
+
+                <!-- Lista dinámica de correos con botón '+' -->
+                <div id="emails-container" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    {% if submitted_emails %}
+                        {% for email_val in submitted_emails %}
+                        <div class="email-row" style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="email" 
+                                   name="allowed_emails" 
+                                   class="form-control" 
+                                   placeholder="destinatario@empresa.com" 
+                                   value="{{ email_val }}" 
+                                   required>
+                            <button type="button" 
+                                    class="btn btn-secondary btn-remove-email" 
+                                    onclick="removeEmailRow(this)" 
+                                    title="Eliminar este correo"
+                                    style="padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;">
+                                ✕
+                            </button>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="email-row" style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="email" 
+                                   name="allowed_emails" 
+                                   class="form-control" 
+                                   placeholder="destinatario@empresa.com" 
+                                   required>
+                            <button type="button" 
+                                    class="btn btn-secondary btn-remove-email" 
+                                    onclick="removeEmailRow(this)" 
+                                    title="Eliminar este correo"
+                                    style="padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;">
+                                ✕
+                            </button>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div style="margin-top: 0.65rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                    <button type="button" 
+                            id="btn-add-email" 
+                            class="btn btn-secondary" 
+                            onclick="addEmailRow()"
+                            style="padding: 0.45rem 0.9rem; font-size: 0.85rem; border-color: var(--accent-cyan); color: var(--accent-cyan); background: rgba(6, 182, 212, 0.08);">
+                        ➕ Añadir otro correo
+                    </button>
+                    <span class="form-help" style="margin-top: 0;">Solo las direcciones autorizadas podrán solicitar y recibir la clave.</span>
+                </div>
+
                 {% if form.allowed_emails.errors %}
-                    <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
+                    <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.5rem;">
                         {{ form.allowed_emails.errors.0 }}
                     </div>
                 {% endif %}
-                <span class="form-help">{{ form.allowed_emails.help_text }}</span>
             </div>
 
             <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
@@ -140,4 +193,66 @@
         </div>
     {% endif %}
 </div>
+
+<script>
+    function addEmailRow(val = '') {
+        const container = document.getElementById('emails-container');
+        if (!container) return;
+
+        const row = document.createElement('div');
+        row.className = 'email-row';
+        row.style.cssText = 'display: flex; gap: 0.5rem; align-items: center;';
+
+        const input = document.createElement('input');
+        input.type = 'email';
+        input.name = 'allowed_emails';
+        input.className = 'form-control';
+        input.placeholder = 'destinatario@empresa.com';
+        input.value = val;
+        input.required = true;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-secondary btn-remove-email';
+        removeBtn.style.cssText = 'padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;';
+        removeBtn.title = 'Eliminar este correo';
+        removeBtn.textContent = '✕';
+        removeBtn.onclick = function() { removeEmailRow(removeBtn); };
+
+        row.appendChild(input);
+        row.appendChild(removeBtn);
+        container.appendChild(row);
+
+        updateEmailControls();
+        input.focus();
+    }
+
+    function removeEmailRow(button) {
+        const container = document.getElementById('emails-container');
+        if (!container) return;
+
+        const rows = container.getElementsByClassName('email-row');
+        if (rows.length > 1) {
+            button.closest('.email-row').remove();
+            updateEmailControls();
+        }
+    }
+
+    function updateEmailControls() {
+        const container = document.getElementById('emails-container');
+        if (!container) return;
+
+        const rows = container.getElementsByClassName('email-row');
+        for (let i = 0; i < rows.length; i++) {
+            const btn = rows[i].querySelector('.btn-remove-email');
+            if (btn) {
+                btn.style.display = rows.length === 1 ? 'none' : 'inline-flex';
+            }
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        updateEmailControls();
+    });
+</script>
 {% endblock %}

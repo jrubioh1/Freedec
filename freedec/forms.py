@@ -2,7 +2,11 @@ from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
-from freedec.validators import validate_document_file, validate_safe_email
+from freedec.validators import (
+    normalize_and_validate_email_list,
+    validate_document_file,
+    validate_safe_email,
+)
 
 DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024
 
@@ -32,15 +36,15 @@ class AdminDocumentUploadForm(forms.Form):
     )
     allowed_emails = forms.CharField(
         label="Correos Electrónicos Autorizados",
-        widget=forms.Textarea(
+        required=False,
+        widget=forms.EmailInput(
             attrs={
                 "class": "form-control",
-                "rows": 3,
-                "placeholder": "ejemplo1@empresa.com, ejemplo2@empresa.com (separados por coma o salto de línea)",
+                "placeholder": "destinatario@empresa.com",
                 "id": "allowed_emails",
             }
         ),
-        help_text="Solo los correos especificados podrán solicitar y recibir la contraseña descifrada.",
+        help_text="Direcciones de correo autorizadas a recibir la contraseña. Use el botón '+' para agregar más destinatarios.",
     )
 
     def clean_original_file(self):
@@ -58,24 +62,14 @@ class AdminDocumentUploadForm(forms.Form):
         return validate_document_file(file_obj)
 
     def clean_allowed_emails(self):
-        raw_text = self.cleaned_data.get("allowed_emails", "")
-        # Separar por comas, puntos y comas o saltos de línea
-        lines = raw_text.replace(";", ",").replace("\n", ",").split(",")
-        cleaned_list = []
+        # Admite múltiples campos input ('allowed_emails'), delimitadores o listas
+        if hasattr(self.data, "getlist"):
+            raw_entries = self.data.getlist("allowed_emails")
+        else:
+            raw_val = self.cleaned_data.get("allowed_emails") or self.data.get("allowed_emails") or ""
+            raw_entries = [raw_val] if isinstance(raw_val, str) else list(raw_val)
 
-        for item in lines:
-            trimmed = item.strip()
-            if trimmed:
-                try:
-                    clean_email = validate_safe_email(trimmed)
-                    cleaned_list.append(clean_email)
-                except ValidationError as exc:
-                    raise ValidationError(f"Correo inválido '{trimmed}': {exc.message}")
-
-        if not cleaned_list:
-            raise ValidationError("Debe indicar al menos una dirección de correo válida.")
-
-        return sorted(list(set(cleaned_list)))
+        return normalize_and_validate_email_list(raw_entries)
 
 
 class PublicPasswordRequestForm(forms.Form):
