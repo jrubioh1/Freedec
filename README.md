@@ -17,7 +17,7 @@
 <a id="seccion-espanol"></a>
 # 🇪🇸 Español: Guía Completa de la Aplicación Freedec
 
-Bienvenido a la documentación oficial de **Freedec**. Esta guía está redactada con el máximo nivel de detalle para que cualquier persona, **incluso sin experiencia previa en criptografía o Django**, pueda entender el funcionamiento del sistema, probarlo en minutos y acoplarlo en cualquier proyecto existente utilizando **Poetry**.
+Bienvenido a la documentación oficial de **Freedec**.
 
 ---
 
@@ -492,7 +492,7 @@ Añade estas líneas dentro de tu VirtualHost (`/etc/apache2/sites-available/def
 <a id="section-english"></a>
 # 🇬🇧 English: Complete Guide for Freedec Application
 
-Welcome to the official documentation for **Freedec**. This guide is written with maximum detail so that anyone, **even with zero prior knowledge of cryptography or Django**, can understand how the system works, test it in minutes, and integrate it into any existing project using **Poetry**.
+Welcome to the official documentation for **Freedec**. 
 
 ---
 
