@@ -256,12 +256,6 @@ class DocumentManagementService:
         # 1. Identificación criptográfica por SHA-256 del contenido original
         file_hash = calculate_file_sha256(original_file)
 
-        if EncryptedDocument.objects.filter(file_hash=file_hash).exists():
-            raise ValidationError(
-                _("Ya existe un documento registrado con el hash SHA-256: %(file_hash)s.")
-                % {"file_hash": file_hash}
-            )
-
         # 2. Generación de Clave Maestra simétrica única (DEK)
         dek = Fernet.generate_key()
 
@@ -360,11 +354,21 @@ class DocumentManagementService:
 
         calculated_hash = hashlib.sha256(file_bytes).hexdigest()
 
-        # Localizar documento por hash del archivo cifrado o por hash del original
-        document = (
-            EncryptedDocument.objects.filter(encrypted_file_hash=calculated_hash).first()
-            or EncryptedDocument.objects.filter(file_hash=calculated_hash).first()
-        )
+        # Localizar documento por hash del archivo cifrado (.enc) o por hash del original
+        document = EncryptedDocument.objects.filter(encrypted_file_hash=calculated_hash).first()
+        if not document:
+            docs = EncryptedDocument.objects.filter(file_hash=calculated_hash).order_by("-created_at")
+            if docs.exists():
+                active_authorized = [d for d in docs.filter(is_consumed=False) if d.is_email_authorized(normalized_email)]
+                if active_authorized:
+                    document = active_authorized[0]
+                else:
+                    active_any = docs.filter(is_consumed=False).first()
+                    if active_any:
+                        document = active_any
+                    else:
+                        consumed_authorized = [d for d in docs.filter(is_consumed=True) if d.is_email_authorized(normalized_email)]
+                        document = consumed_authorized[0] if consumed_authorized else docs.first()
 
         if not document:
             logger.warning(
@@ -395,7 +399,7 @@ class DocumentManagementService:
             subject = f"[Freedec] Archivo ya retirado: {doc_name}"
             body = (
                 _("Estimado usuario,") + "\n\n"
-                + f"El documento ya fue retirado por {consumed_by_user} el {consumed_at_str}. Solicite una copia directamente a esa dirección.\n\n"
+                + f"El documento '{doc_name}' ya fue retirado por {consumed_by_user} el {consumed_at_str}. Solicite una copia directamente a esa dirección.\n\n"
                 + _("Atentamente,") + "\n"
                 + _("Sistema Automatizado Freedec")
             )
@@ -529,12 +533,13 @@ class DocumentManagementService:
         if document.is_consumed:
             token_obj.is_used = True
             token_obj.save(update_fields=["is_used"])
+            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
             return (
                 False,
                 None,
                 None,
                 None,
-                f"El documento ya fue retirado por {document.consumed_by} el {document.consumed_at.strftime('%Y-%m-%d %H:%M:%S UTC') if document.consumed_at else ''}. Solicite una copia directamente a esa dirección.",
+                f"El documento '{doc_name}' ya fue retirado por {document.consumed_by} el {document.consumed_at.strftime('%Y-%m-%d %H:%M:%S UTC') if document.consumed_at else ''}. Solicite una copia directamente a esa dirección.",
             )
 
         if not document.encrypted_file:

@@ -55,7 +55,7 @@ Compartir documentos de alta confidencialidad (contratos, auditorías, informes 
    * **Destrucción Física Inmediata**: El archivo cifrado `.enc` en disco se **elimina de forma física e irreversible** (`document.encrypted_file.delete(save=False)`).
    * El registro en base de datos se marca `is_consumed = True`, guardando `consumed_by` y `consumed_at`.
 4. **Gestión de Accesos Posteriores**:
-   * Si otro usuario autorizado intenta solicitar o descifrar un documento ya consumido, el sistema no produce errores 500 ni fuga datos. En su lugar, le envía automáticamente un correo informando: *"El documento ya fue retirado por {consumed_by} el {consumed_at}. Solicite una copia directamente a esa dirección."*
+   * Si otro usuario autorizado intenta solicitar o descifrar un documento ya consumido, el sistema no produce errores 500 ni fuga datos. En su lugar, le envía automáticamente un correo con asunto `[Freedec] Archivo ya retirado: {nombre_documento}` informando: *"El documento '{nombre_documento}' ya fue retirado por {consumed_by} el {consumed_at}. Solicite una copia directamente a esa dirección."*
 5. **Acceso Administrativo Preservado (Audit Bypass)**:
    * El personal administrativo autorizado en Django Admin puede descargar una copia original descifrada para fines de auditoría o contingencia usando la clave de servidor **sin destruir el archivo en disco ni marcarlo como consumido**, registrando el evento como `admin_inspeccion_preservada`.
 
@@ -447,7 +447,7 @@ Sharing sensitive files using static passwords or conventional channels creates 
    * As soon as an authorized recipient downloads the document, the physical `.enc` file is permanently deleted from storage (`document.encrypted_file.delete(save=False)`).
    * The database record is updated to `is_consumed = True`, storing `consumed_by` and `consumed_at`.
 4. **Post-Consumption Management**:
-   * Subsequent access requests automatically notify the requester that the document was already claimed by `{consumed_by}` on `{consumed_at}` and direct them to ask that person for a copy.
+   * Subsequent access requests automatically email the requester with subject `[Freedec] Archivo ya retirado: {document_name}` stating that the document '{document_name}' was already claimed by `{consumed_by}` on `{consumed_at}` and directing them to ask that person for a copy.
 5. **Non-Destructive Administrative Access (Audit Bypass)**:
    * Authenticated staff in Django Admin can download the decrypted original document using the server key without destroying the file and without setting `is_consumed = True`, logging `admin_inspeccion_preservada`.
 

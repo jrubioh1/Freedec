@@ -203,6 +203,30 @@ class FreedecServicesSecurityTestCase(TestCase):
         admin_dek = self.crypto_service.decrypt_bytes(doc.admin_encrypted_dek.encode("utf-8"))
         self.assertEqual(admin_dek, alice_dek)
 
+    def test_upload_same_file_multiple_times_allowed(self):
+        """
+        Verifica que subir dos o más veces el mismo archivo está permitido,
+        generando registros independientes con DEKs distintas y sobres propios.
+        """
+        uploaded1 = SimpleUploadedFile("contrato.pdf", self.test_content)
+        doc1, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded1,
+            allowed_emails=["alice@empresa.com"],
+        )
+
+        uploaded2 = SimpleUploadedFile("contrato.pdf", self.test_content)
+        doc2, _ = self.doc_service.upload_and_encrypt_document(
+            original_file=uploaded2,
+            allowed_emails=["bob@empresa.com"],
+        )
+
+        self.assertNotEqual(doc1.pk, doc2.pk)
+        self.assertEqual(doc1.file_hash, doc2.file_hash)
+        self.assertNotEqual(doc1.encrypted_file_hash, doc2.encrypted_file_hash)
+        self.assertNotEqual(doc1.admin_encrypted_dek, doc2.admin_encrypted_dek)
+        self.assertIn("alice@empresa.com", doc1.user_envelopes)
+        self.assertIn("bob@empresa.com", doc2.user_envelopes)
+
     # --------------------------------------------------------------------------
     # FLUJO DE SOLICITUD DE ACCESO (MAGIC LINK / OTP)
     # --------------------------------------------------------------------------
@@ -480,7 +504,7 @@ class FreedecServicesSecurityTestCase(TestCase):
         post_mail = mail.outbox[0]
         self.assertIn("segundo@empresa.com", post_mail.to)
         self.assertIn("[Freedec] Archivo ya retirado: acuerdo.pdf", post_mail.subject)
-        self.assertIn("El documento ya fue retirado por primero@empresa.com", post_mail.body)
+        self.assertIn("El documento 'acuerdo.pdf' ya fue retirado por primero@empresa.com", post_mail.body)
         self.assertIn("Solicite una copia directamente a esa dirección.", post_mail.body)
 
         # Verificar auditoría

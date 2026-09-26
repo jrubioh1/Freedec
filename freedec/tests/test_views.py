@@ -87,6 +87,32 @@ class FreedecViewsAPITestCase(APITestCase):
         self.assertIn("auditor1@corp.com", doc.user_envelopes)
         self.assertFalse(doc.is_consumed)
 
+    def test_admin_upload_same_file_twice_success(self):
+        """Un administrador puede subir el mismo archivo dos veces sin error."""
+        self.client.force_login(self.admin_user)
+        file1 = SimpleUploadedFile("duplicate.pdf", self.sample_bytes)
+        resp1 = self.client.post(
+            self.django_admin_add_url,
+            {
+                "original_file": file1,
+                "allowed_emails": ["user1@corp.com"],
+            },
+            follow=True,
+        )
+        self.assertEqual(resp1.status_code, status.HTTP_200_OK)
+
+        file2 = SimpleUploadedFile("duplicate.pdf", self.sample_bytes)
+        resp2 = self.client.post(
+            self.django_admin_add_url,
+            {
+                "original_file": file2,
+                "allowed_emails": ["user2@corp.com"],
+            },
+            follow=True,
+        )
+        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
+        self.assertEqual(EncryptedDocument.objects.filter(file_hash=self.expected_hash).count(), 2)
+
     def test_admin_download_authenticated_preserves_file(self):
         """Un administrador descarga el archivo descifrado desde el panel sin destruirlo (Audit Bypass)."""
         uploaded = SimpleUploadedFile("confidential_admin.pdf", self.sample_bytes)
@@ -358,4 +384,4 @@ class FreedecViewsAPITestCase(APITestCase):
         # User 2 tries to consume using their token
         response = self.client.get(f"{self.gui_consume_url}?t={token_str2}")
         self.assertEqual(response.status_code, 400)
-        self.assertContains(response, "El documento ya fue retirado por user1@example.com", status_code=400)
+        self.assertContains(response, "El documento &#x27;already_burned.pdf&#x27; ya fue retirado por user1@example.com", status_code=400)

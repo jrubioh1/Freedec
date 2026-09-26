@@ -143,7 +143,7 @@ flowchart TD
 | Campo | Tipo | Restricciones | Propósito de Seguridad |
 | :--- | :--- | :--- | :--- |
 | `original_filename` | `CharField(255)` | `default='documento'` | Preservación del nombre original para entrega al descifrar. |
-| `file_hash` | `CharField(64)` | `unique=True`, `db_index=True` | Huella digital SHA-256 del contenido original (anti-IDOR). |
+| `file_hash` | `CharField(64)` | `db_index=True` | Huella digital SHA-256 del contenido original (anti-IDOR). |
 | `encrypted_file` | `FileField` | `upload_to='encrypted_docs/'` | Archivo binario `.enc` cifrado en reposo con la DEK. |
 | `encrypted_file_hash`| `CharField(64)` | `blank=True`, `db_index=True` | Hash SHA-256 del archivo cifrado `.enc` en reposo. |
 | `admin_encrypted_dek` | `TextField` | `blank=True` | DEK cifrada con la clave del servidor para descarga administrativa protegida. |
@@ -335,7 +335,7 @@ flowchart TD
 | Field | Type | Constraints | Security Purpose |
 | :--- | :--- | :--- | :--- |
 | `original_filename` | `CharField(255)` | `default='documento'` | Original file name preservation for download. |
-| `file_hash` | `CharField(64)` | `unique=True`, `db_index=True` | Cryptographic SHA-256 identifier of unencrypted content. |
+| `file_hash` | `CharField(64)` | `db_index=True` | Cryptographic SHA-256 identifier of unencrypted content. |
 | `encrypted_file` | `FileField` | `upload_to='encrypted_docs/'` | Binary `.enc` file encrypted at rest with DEK. |
 | `encrypted_file_hash`| `CharField(64)` | `blank=True`, `db_index=True` | SHA-256 hash of the `.enc` file at rest. |
 | `admin_encrypted_dek` | `TextField` | `blank=True` | DEK encrypted with server key for preserved administrative download. |

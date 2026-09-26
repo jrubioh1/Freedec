@@ -37,7 +37,6 @@ class EncryptedDocument(models.Model):
     )
     file_hash = models.CharField(
         max_length=64,
-        unique=True,
         db_index=True,
         verbose_name=_("Hash SHA-256"),
         help_text=_("Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar."),
