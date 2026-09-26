@@ -1,9 +1,40 @@
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils.translation import activate, check_for_language, gettext as _
 from django.views import View
+
+
+def set_language_view(request):
+    """
+    Cambia el idioma activo de la interfaz (es/en) y redirige a la página anterior.
+    Almacena la preferencia tanto en la sesión como en la cookie de idioma de Django.
+    """
+    lang_code = request.GET.get("lang") or request.POST.get("language")
+    next_url = (
+        request.GET.get("next")
+        or request.META.get("HTTP_REFERER")
+        or reverse("freedec:gui-public-request")
+    )
+    response = HttpResponseRedirect(next_url)
+    if lang_code and check_for_language(lang_code):
+        if hasattr(request, "session"):
+            request.session["django_language"] = lang_code
+        response.set_cookie(
+            getattr(settings, "LANGUAGE_COOKIE_NAME", "django_language"),
+            lang_code,
+            max_age=getattr(settings, "LANGUAGE_COOKIE_AGE", 365 * 24 * 60 * 60),
+            path=getattr(settings, "LANGUAGE_COOKIE_PATH", "/"),
+            domain=getattr(settings, "LANGUAGE_COOKIE_DOMAIN", None),
+            secure=getattr(settings, "LANGUAGE_COOKIE_SECURE", False),
+            httponly=getattr(settings, "LANGUAGE_COOKIE_HTTPONLY", False),
+            samesite=getattr(settings, "LANGUAGE_COOKIE_SAMESITE", "Lax"),
+        )
+        activate(lang_code)
+    return response
 
 from freedec.forms import (
     AdminDocumentUploadForm,
@@ -64,7 +95,7 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
                 status=400,
             )
         except Exception as exc:
-            form.add_error(None, f"Error interno en el procesamiento: {exc}")
+            form.add_error(None, _("Error interno en el procesamiento: %(exc)s") % {"exc": str(exc)})
             return render(
                 request,
                 self.template_name,

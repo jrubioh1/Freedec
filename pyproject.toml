@@ -24,6 +24,7 @@ classifiers = [
 packages = [{include = "freedec"}]
 include = [
     "freedec/templates/**/*",
+    "freedec/locale/**/*",
     "LICENSE",
 ]
 

@@ -1,0 +1,682 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-26 17:45+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
+""
+
+#: freedec/admin.py:127
+msgid "Archivo Documental Original"
+msgstr "Archivo Documental Original"
+
+#: freedec/admin.py:129 freedec/forms.py:24
+msgid ""
+"Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft "
+"Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
+msgstr "Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
+
+#: freedec/admin.py:133
+msgid "Contraseña (Opcional)"
+msgstr "Contraseña (Opcional)"
+
+#: freedec/admin.py:136
+msgid "Dejar en blanco para autogenerar una clave segura..."
+msgstr "Dejar en blanco para autogenerar una clave segura..."
+
+#: freedec/admin.py:139
+msgid ""
+"Opcional. Si se deja en blanco, el sistema genera automáticamente una clave "
+"de 24 caracteres."
+msgstr "Opcional. Si se deja en blanco, el sistema genera automáticamente una clave de 24 caracteres."
+
+#: freedec/admin.py:143 freedec/admin.py:176
+msgid "Correos Autorizados"
+msgstr "Correos Autorizados"
+
+#: freedec/admin.py:146
+msgid ""
+"Destinatarios autorizados. Use '+' para añadir más direcciones (sin JSON)."
+msgstr "Destinatarios autorizados. Use '+' para añadir más direcciones (sin JSON)."
+
+#: freedec/admin.py:179
+msgid "Destinatarios autorizados. Use '+' para añadir o modificar direcciones."
+msgstr "Destinatarios autorizados. Use '+' para añadir o modificar direcciones."
+
+#: freedec/admin.py:204
+msgid "Registro de acceso"
+msgstr "Registro de acceso"
+
+#: freedec/admin.py:205
+msgid "Historial de accesos y trazabilidad de clave"
+msgstr "Historial de accesos y trazabilidad de clave"
+
+#: freedec/admin.py:240
+msgid "Cifrado y Registro de Nuevo Documento"
+msgstr "Cifrado y Registro de Nuevo Documento"
+
+#: freedec/admin.py:244
+msgid ""
+"Suba el archivo original. La contraseña y el código de acceso se generarán "
+"automáticamente mediante algoritmos de alta entropía."
+msgstr "Suba el archivo original. La contraseña y el código de acceso se generarán automáticamente mediante algoritmos de alta entropía."
+
+#: freedec/admin.py:251
+msgid "Nombre e Identificación Criptográfica"
+msgstr "Nombre e Identificación Criptográfica"
+
+#: freedec/admin.py:254
+msgid "Nombre original y hash SHA-256 del archivo calculado en la subida."
+msgstr "Nombre original y hash SHA-256 del archivo calculado en la subida."
+
+#: freedec/admin.py:258
+msgid "Almacenamiento Cifrado"
+msgstr "Almacenamiento Cifrado"
+
+#: freedec/admin.py:262
+msgid ""
+"El archivo y la contraseña se encuentran cifrados en reposo con Fernet "
+"(AES-128-CBC + HMAC)."
+msgstr "El archivo y la contraseña se encuentran cifrados en reposo con Fernet (AES-128-CBC + HMAC)."
+
+#: freedec/admin.py:267
+msgid "Seguridad y Control de Acceso"
+msgstr "Seguridad y Control de Acceso"
+
+#: freedec/admin.py:271
+msgid ""
+"El código de acceso se almacena mediante hash PBKDF2 (Zero-Knowledge). Los "
+"correos pueden modificarse usando el botón '+'."
+msgstr "El código de acceso se almacena mediante hash PBKDF2 (Zero-Knowledge). Los correos pueden modificarse usando el botón '+'."
+
+#: freedec/admin.py:276
+msgid "Auditoría y Trazabilidad de Accesos"
+msgstr "Auditoría y Trazabilidad de Accesos"
+
+#: freedec/admin.py:286
+msgid ""
+"Registro de actividad y fecha del último acceso o despacho de contraseña."
+msgstr "Registro de actividad y fecha del último acceso o despacho de contraseña."
+
+#: freedec/admin.py:449 freedec/models.py:42
+msgid "Hash SHA-256"
+msgstr "Hash SHA-256"
+
+#: freedec/admin.py:453
+msgid "Descargar Cifrado"
+msgstr "Descargar Cifrado"
+
+#: freedec/admin.py:465
+msgid "Eliminar"
+msgstr "Eliminar"
+
+#: freedec/forms.py:22
+msgid "Archivo Documental"
+msgstr "Archivo Documental"
+
+#: freedec/forms.py:29 freedec/forms.py:153
+msgid "Contraseña de Descifrado"
+msgstr "Contraseña de Descifrado"
+
+#: freedec/forms.py:34
+msgid "Mínimo 8 caracteres de alta entropía..."
+msgstr "Mínimo 8 caracteres de alta entropía..."
+
+#: freedec/forms.py:38
+msgid "Clave que será cifrada internamente con Fernet (AES-128-CBC + HMAC)."
+msgstr "Clave que será cifrada internamente con Fernet (AES-128-CBC + HMAC)."
+
+#: freedec/forms.py:41 freedec/templates/freedec/admin_upload.html:163
+msgid "Correos Electrónicos Autorizados"
+msgstr "Correos Electrónicos Autorizados"
+
+#: freedec/forms.py:46
+msgid "destinatario@empresa.com"
+msgstr "destinatario@empresa.com"
+
+#: freedec/forms.py:51
+msgid ""
+"Direcciones de correo autorizadas a recibir la contraseña. Use el botón '+' "
+"para agregar más destinatarios."
+msgstr "Direcciones de correo autorizadas a recibir la contraseña. Use el botón '+' para agregar más destinatarios."
+
+#: freedec/forms.py:58
+msgid "Debe seleccionar un archivo."
+msgstr "Debe seleccionar un archivo."
+
+#: freedec/forms.py:64 freedec/forms.py:126 freedec/forms.py:174
+#: freedec/services.py:223
+#, python-format
+msgid "El archivo excede el tamaño máximo permitido de %(max_size)s MB."
+msgstr "El archivo excede el tamaño máximo permitido de %(max_size)s MB."
+
+#: freedec/forms.py:89 freedec/models.py:141
+msgid "Documento"
+msgstr "Documento"
+
+#: freedec/forms.py:90
+msgid "Seleccione el archivo que desea consultar."
+msgstr "Seleccione el archivo que desea consultar."
+
+#: freedec/forms.py:94
+msgid "Código de Acceso"
+msgstr "Código de Acceso"
+
+#: freedec/forms.py:98
+msgid "Introduzca su código de acceso..."
+msgstr "Introduzca su código de acceso..."
+
+#: freedec/forms.py:103
+msgid "Código facilitado por el emisor del documento."
+msgstr "Código facilitado por el emisor del documento."
+
+#: freedec/forms.py:106
+msgid "Correo Electrónico"
+msgstr "Correo Electrónico"
+
+#: freedec/forms.py:110
+msgid "su-correo@ejemplo.com"
+msgstr "su-correo@ejemplo.com"
+
+#: freedec/forms.py:114
+msgid "Dirección de correo donde se enviará la contraseña."
+msgstr "Dirección de correo donde se enviará la contraseña."
+
+#: freedec/forms.py:120 freedec/forms.py:168
+msgid "Debe proporcionar un archivo."
+msgstr "Debe proporcionar un archivo."
+
+#: freedec/forms.py:148
+msgid "Archivo Cifrado (.enc)"
+msgstr "Archivo Cifrado (.enc)"
+
+#: freedec/forms.py:149
+msgid "Seleccione el archivo con extensión .enc que desea descifrar."
+msgstr "Seleccione el archivo con extensión .enc que desea descifrar."
+
+#: freedec/forms.py:157
+msgid "Pegue la contraseña recibida por correo..."
+msgstr "Pegue la contraseña recibida por correo..."
+
+#: freedec/forms.py:162
+msgid ""
+"Contraseña que le fue remitida a su correo electrónico tras la verificación."
+msgstr "Contraseña que le fue remitida a su correo electrónico tras la verificación."
+
+#: freedec/forms.py:182
+msgid "Debe introducir la contraseña de descifrado."
+msgstr "Debe introducir la contraseña de descifrado."
+
+#: freedec/gui_views.py:98
+#, python-format
+msgid "Error interno en el procesamiento: %(exc)s"
+msgstr "Error interno en el procesamiento: %(exc)s"
+
+#: freedec/models.py:35
+msgid "Nombre original del archivo"
+msgstr "Nombre original del archivo"
+
+#: freedec/models.py:36
+msgid "Nombre del archivo original subido por el administrador."
+msgstr "Nombre del archivo original subido por el administrador."
+
+#: freedec/models.py:43
+msgid ""
+"Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar."
+msgstr "Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar."
+
+#: freedec/models.py:47
+msgid "Archivo cifrado"
+msgstr "Archivo cifrado"
+
+#: freedec/models.py:48
+msgid "Archivo binario cifrado en reposo con Fernet (AES-128-CBC + HMAC)."
+msgstr "Archivo binario cifrado en reposo con Fernet (AES-128-CBC + HMAC)."
+
+#: freedec/models.py:52
+msgid "Código de acceso"
+msgstr "Código de acceso"
+
+#: freedec/models.py:53
+msgid ""
+"Hash PBKDF2 del código secreto de acceso necesario para la verificación."
+msgstr "Hash PBKDF2 del código secreto de acceso necesario para la verificación."
+
+#: freedec/models.py:56
+msgid "Contraseña cifrada"
+msgstr "Contraseña cifrada"
+
+#: freedec/models.py:57
+msgid "Contraseña o clave de descifrado cifrada con Fernet (token seguro)."
+msgstr "Contraseña o clave de descifrado cifrada con Fernet (token seguro)."
+
+#: freedec/models.py:61
+msgid "Correos autorizados"
+msgstr "Correos autorizados"
+
+#: freedec/models.py:62
+msgid "Lista de correos electrónicos autorizados en formato JSON (minúsculas)."
+msgstr "Lista de correos electrónicos autorizados en formato JSON (minúsculas)."
+
+#: freedec/models.py:66
+msgid "Veces accedido"
+msgstr "Veces accedido"
+
+#: freedec/models.py:67
+msgid "Número total de solicitudes de contraseña o descifrados autorizados."
+msgstr "Número total de solicitudes de contraseña o descifrados autorizados."
+
+#: freedec/models.py:72
+msgid "Último acceso"
+msgstr "Último acceso"
+
+#: freedec/models.py:73
+msgid "Fecha y hora de la última solicitud de contraseña o descifrado."
+msgstr "Fecha y hora de la última solicitud de contraseña o descifrado."
+
+#: freedec/models.py:79
+msgid "Último correo que accedió"
+msgstr "Último correo que accedió"
+
+#: freedec/models.py:80
+msgid "Dirección de correo del último usuario que solicitó la clave."
+msgstr "Dirección de correo del último usuario que solicitó la clave."
+
+#: freedec/models.py:84
+msgid "Fecha de creación"
+msgstr "Fecha de creación"
+
+#: freedec/models.py:85
+msgid "Fecha y hora de registro y cifrado del documento."
+msgstr "Fecha y hora de registro y cifrado del documento."
+
+#: freedec/models.py:89
+msgid "Fecha de actualización"
+msgstr "Fecha de actualización"
+
+#: freedec/models.py:90
+msgid "Fecha y hora de la última modificación del registro."
+msgstr "Fecha y hora de la última modificación del registro."
+
+#: freedec/models.py:94
+msgid "Documento Cifrado"
+msgstr "Documento Cifrado"
+
+#: freedec/models.py:95
+msgid "Documentos Cifrados"
+msgstr "Documentos Cifrados"
+
+#: freedec/models.py:145
+msgid "Correo solicitante"
+msgstr "Correo solicitante"
+
+#: freedec/models.py:150
+msgid "Acción"
+msgstr "Acción"
+
+#: freedec/models.py:151
+msgid "Tipo de evento: 'solicitud_clave' o 'descifrado'."
+msgstr "Tipo de evento: 'solicitud_clave' o 'descifrado'."
+
+#: freedec/models.py:156
+msgid "Dirección IP"
+msgstr "Dirección IP"
+
+#: freedec/models.py:160
+msgid "Fecha y hora de acceso"
+msgstr "Fecha y hora de acceso"
+
+#: freedec/models.py:164
+msgid "Registro de Auditoría de Acceso"
+msgstr "Registro de Auditoría de Acceso"
+
+#: freedec/models.py:165
+msgid "Registros de Auditoría de Accesos"
+msgstr "Registros de Auditoría de Accesos"
+
+#: freedec/services.py:235
+#, python-format
+msgid "Ya existe un documento registrado con el hash SHA-256: %(file_hash)s."
+msgstr "Ya existe un documento registrado con el hash SHA-256: %(file_hash)s."
+
+#: freedec/services.py:317
+msgid "El archivo supera el tamaño máximo permitido."
+msgstr "El archivo supera el tamaño máximo permitido."
+
+#: freedec/services.py:321
+msgid ""
+"Si el archivo, el código de acceso y el correo electrónico coinciden con los "
+"registros autorizados, la clave de descifrado ha sido enviada a su buzón."
+msgstr "Si el archivo, el código de acceso y el correo electrónico coinciden con los registros autorizados, la clave de descifrado ha sido enviada a su buzón."
+
+#: freedec/services.py:398
+msgid "Error interno en el procesamiento criptográfico."
+msgstr "Error interno en el procesamiento criptográfico."
+
+#: freedec/services.py:419
+#, python-format
+msgid "[Freedec] Clave de recuperación para su documento: %(doc_name)s"
+msgstr "[Freedec] Clave de recuperación para su documento: %(doc_name)s"
+
+#: freedec/services.py:431
+msgid "Estimado usuario,"
+msgstr "Estimado usuario,"
+
+#: freedec/services.py:432
+msgid "Se ha verificado con éxito su documento y su autorización de acceso."
+msgstr "Se ha verificado con éxito su documento y su autorización de acceso."
+
+#: freedec/services.py:433
+#, python-format
+msgid "📄 Nombre del archivo: %(doc_name)s"
+msgstr "📄 Nombre del archivo: %(doc_name)s"
+
+#: freedec/services.py:434
+msgid "Su contraseña o clave de descifrado es:"
+msgstr "Su contraseña o clave de descifrado es:"
+
+#: freedec/services.py:440
+#, python-format
+msgid ""
+"Para descifrar su archivo '%(enc_name)s' y recuperar el documento original "
+"sin cifrar, puede acceder al portal público en la pestaña 'Descifrar Archivo "
+"(.enc)':"
+msgstr "Para descifrar su archivo '%(enc_name)s' y recuperar el documento original sin cifrar, puede acceder al portal público en la pestaña 'Descifrar Archivo (.enc)':"
+
+#: freedec/services.py:446
+msgid "Por motivos de seguridad, no comparta esta clave con terceros."
+msgstr "Por motivos de seguridad, no comparta esta clave con terceros."
+
+#: freedec/services.py:447
+msgid "Atentamente,"
+msgstr "Atentamente,"
+
+#: freedec/services.py:448
+msgid "Sistema Automatizado Freedec"
+msgstr "Sistema Automatizado Freedec"
+
+#: freedec/services.py:466
+msgid "Error de validación en los parámetros del mensaje de correo."
+msgstr "Error de validación en los parámetros del mensaje de correo."
+
+#: freedec/services.py:469
+msgid "Error al enviar el correo electrónico con las credenciales."
+msgstr "Error al enviar el correo electrónico con las credenciales."
+
+#: freedec/services.py:496
+msgid "Debe proporcionar la contraseña de descifrado recibida por correo."
+msgstr "Debe proporcionar la contraseña de descifrado recibida por correo."
+
+#: freedec/services.py:508
+msgid "El archivo cifrado está vacío."
+msgstr "El archivo cifrado está vacío."
+
+#: freedec/services.py:514
+msgid "El archivo no es un archivo cifrado válido de Freedec o está dañado."
+msgstr "El archivo no es un archivo cifrado válido de Freedec o está dañado."
+
+#: freedec/services.py:521
+msgid "No se encontró ningún registro correspondiente a este archivo."
+msgstr "No se encontró ningún registro correspondiente a este archivo."
+
+#: freedec/services.py:528
+msgid "Error interno en la verificación criptográfica."
+msgstr "Error interno en la verificación criptográfica."
+
+#: freedec/services.py:532
+msgid "La contraseña introducida no coincide con la clave del documento."
+msgstr "La contraseña introducida no coincide con la clave del documento."
+
+#: freedec/services.py:555
+msgid "Documento descifrado correctamente."
+msgstr "Documento descifrado correctamente."
+
+#: freedec/templates/freedec/admin_upload.html:4
+msgid "Panel de Administrador - Subida y Cifrado"
+msgstr "Panel de Administrador - Subida y Cifrado"
+
+#: freedec/templates/freedec/admin_upload.html:11
+msgid "Subida y Cifrado de Documentos"
+msgstr "Subida y Cifrado de Documentos"
+
+#: freedec/templates/freedec/admin_upload.html:13
+msgid "Admin Exclusivo"
+msgstr "Admin Exclusivo"
+
+#: freedec/templates/freedec/admin_upload.html:16
+msgid ""
+"Cifra documentos en reposo con AES-128-CBC + HMAC (Fernet), calcula su hash "
+"SHA-256 y genera el código de acceso Zero-Knowledge."
+msgstr "Cifra documentos en reposo con AES-128-CBC + HMAC (Fernet), calcula su hash SHA-256 y genera el código de acceso Zero-Knowledge."
+
+#: freedec/templates/freedec/admin_upload.html:24
+msgid "✓ Documento cifrado y registrado exitosamente."
+msgstr "✓ Documento cifrado y registrado exitosamente."
+
+#: freedec/templates/freedec/admin_upload.html:25
+msgid ""
+"El archivo ha sido cifrado en el servidor y almacenado en disco. A "
+"continuación se presentan los datos criptográficos generados."
+msgstr "El archivo ha sido cifrado en el servidor y almacenado en disco. A continuación se presentan los datos criptográficos generados."
+
+#: freedec/templates/freedec/admin_upload.html:30
+msgid "Identificador Criptográfico (Hash SHA-256):"
+msgstr "Identificador Criptográfico (Hash SHA-256):"
+
+#: freedec/templates/freedec/admin_upload.html:34
+msgid "Copiar Hash"
+msgstr "Copiar Hash"
+
+#: freedec/templates/freedec/admin_upload.html:41
+msgid "Código Secreto de Acceso (Entrega Manual Única):"
+msgstr "Código Secreto de Acceso (Entrega Manual Única):"
+
+#: freedec/templates/freedec/admin_upload.html:48
+msgid "Copiar Código de Acceso"
+msgstr "Copiar Código de Acceso"
+
+#: freedec/templates/freedec/admin_upload.html:52
+msgid ""
+"<strong>IMPORTANTE:</strong> Guarde y entregue este código al destinatario a "
+"través de un canal seguro fuera de banda (Signal, SMS o en persona). En la "
+"base de datos se almacena exclusivamente su hash PBKDF2 (Zero-Knowledge) y "
+"<strong>no podrá volver a ser consultado</strong>."
+msgstr "<strong>IMPORTANTE:</strong> Guarde y entregue este código al destinatario a través de un canal seguro fuera de banda (Signal, SMS o en persona). En la base de datos se almacena exclusivamente su hash PBKDF2 (Zero-Knowledge) y <strong>no podrá volver a ser consultado</strong>."
+
+#: freedec/templates/freedec/admin_upload.html:59
+msgid "Contraseña de Descifrado Asignada / Generada:"
+msgstr "Contraseña de Descifrado Asignada / Generada:"
+
+#: freedec/templates/freedec/admin_upload.html:66
+msgid "Copiar Contraseña"
+msgstr "Copiar Contraseña"
+
+#: freedec/templates/freedec/admin_upload.html:70
+msgid ""
+"Esta es la contraseña que descifra el documento. El sistema la remitirá al "
+"correo del usuario cuando la solicite."
+msgstr "Esta es la contraseña que descifra el documento. El sistema la remitirá al correo del usuario cuando la solicite."
+
+#: freedec/templates/freedec/admin_upload.html:78
+msgid "Archivo de Control y Credenciales (.txt) para el Administrador:"
+msgstr "Archivo de Control y Credenciales (.txt) para el Administrador:"
+
+#: freedec/templates/freedec/admin_upload.html:81
+msgid ""
+"Guarda este archivo en tu equipo. Contiene todos los datos (nombre, hash, "
+"código de acceso y contraseña) para que puedas consultarlos o acceder si lo "
+"necesitas."
+msgstr "Guarda este archivo en tu equipo. Contiene todos los datos (nombre, hash, código de acceso y contraseña) para que puedas consultarlos o acceder si lo necesitas."
+
+#: freedec/templates/freedec/admin_upload.html:84
+msgid "Descargar"
+msgstr "Descargar"
+
+#: freedec/templates/freedec/admin_upload.html:99
+msgid "Archivo Cifrado para Distribución:"
+msgstr "Archivo Cifrado para Distribución:"
+
+#: freedec/templates/freedec/admin_upload.html:101
+msgid "Descargar Archivo Cifrado"
+msgstr "Descargar Archivo Cifrado"
+
+#: freedec/templates/freedec/admin_upload.html:107
+msgid "Destinatarios Autorizados:"
+msgstr "Destinatarios Autorizados:"
+
+#: freedec/templates/freedec/admin_upload.html:116
+msgid "Cifrar y Registrar Otro Documento"
+msgstr "Cifrar y Registrar Otro Documento"
+
+#: freedec/templates/freedec/admin_upload.html:166
+msgid "Destinatarios autorizados"
+msgstr "Destinatarios autorizados"
+
+#: freedec/templates/freedec/admin_upload.html:184
+#: freedec/templates/freedec/admin_upload.html:200
+#: freedec/templates/freedec/admin_upload.html:260
+msgid "Eliminar este correo"
+msgstr "Eliminar este correo"
+
+#: freedec/templates/freedec/admin_upload.html:214
+msgid "Añadir otro correo"
+msgstr "Añadir otro correo"
+
+#: freedec/templates/freedec/admin_upload.html:216
+msgid "Solo las direcciones autorizadas podrán solicitar y recibir la clave."
+msgstr "Solo las direcciones autorizadas podrán solicitar y recibir la clave."
+
+#: freedec/templates/freedec/admin_upload.html:227
+msgid "Cifrar, Hashear y Registrar Documento"
+msgstr "Cifrar, Hashear y Registrar Documento"
+
+#: freedec/templates/freedec/admin_upload.html:232
+msgid "Cifrado:"
+msgstr "Cifrado:"
+
+#: freedec/templates/freedec/admin_upload.html:233
+msgid "Identificación:"
+msgstr "Identificación:"
+
+#: freedec/templates/freedec/admin_upload.html:234
+msgid "Seguridad:"
+msgstr "Seguridad:"
+
+#: freedec/templates/freedec/base.html:7
+msgid "Freedec - Cifrado y Recuperación Segura"
+msgstr "Freedec - Cifrado y Recuperación Segura"
+
+#: freedec/templates/freedec/base.html:346
+#: freedec/templates/freedec/public_decrypt.html:74
+#: freedec/templates/freedec/public_request.html:93
+msgid "Solicitar Contraseña"
+msgstr "Solicitar Contraseña"
+
+#: freedec/templates/freedec/base.html:347
+msgid "Descifrar Archivo (.enc)"
+msgstr "Descifrar Archivo (.enc)"
+
+#: freedec/templates/freedec/base.html:371
+msgid ""
+"Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y "
+"Recuperación de Contraseñas"
+msgstr "Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y Recuperación de Contraseñas"
+
+#: freedec/templates/freedec/base.html:379
+msgid "✓ ¡Copiado!"
+msgstr "✓ ¡Copiado!"
+
+#: freedec/templates/freedec/public_decrypt.html:4
+msgid "Descifrar Documento (.enc)"
+msgstr "Descifrar Documento (.enc)"
+
+#: freedec/templates/freedec/public_decrypt.html:11
+msgid "Descifrar Archivo Cifrado"
+msgstr "Descifrar Archivo Cifrado"
+
+#: freedec/templates/freedec/public_decrypt.html:13
+msgid "Descarga Segura"
+msgstr "Descarga Segura"
+
+#: freedec/templates/freedec/public_decrypt.html:16
+msgid ""
+"Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le "
+"enviamos a su correo para recuperar y descargar el documento original."
+msgstr "Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le enviamos a su correo para recuperar y descargar el documento original."
+
+#: freedec/templates/freedec/public_decrypt.html:23
+msgid "Error en el descifrado:"
+msgstr "Error en el descifrado:"
+
+#: freedec/templates/freedec/public_decrypt.html:67
+msgid "Descifrar y Descargar Archivo Original"
+msgstr "Descifrar y Descargar Archivo Original"
+
+#: freedec/templates/freedec/public_decrypt.html:72
+msgid "¿Aún no tienes la contraseña?"
+msgstr "¿Aún no tienes la contraseña?"
+
+#: freedec/templates/freedec/public_decrypt.html:74
+msgid "Si tienes el archivo pero no has solicitado la contraseña, ve a"
+msgstr "Si tienes el archivo pero no has solicitado la contraseña, ve a"
+
+#: freedec/templates/freedec/public_decrypt.html:74
+msgid ""
+"sube tu archivo e introduce tu código de acceso para recibirla en tu correo "
+"electrónico."
+msgstr "sube tu archivo e introduce tu código de acceso para recibirla en tu correo electrónico."
+
+#: freedec/templates/freedec/public_request.html:4
+#: freedec/templates/freedec/public_request.html:11
+msgid "Entrega Segura de Contraseña"
+msgstr "Entrega Segura de Contraseña"
+
+#: freedec/templates/freedec/public_request.html:13
+msgid "Portal de Usuario"
+msgstr "Portal de Usuario"
+
+#: freedec/templates/freedec/public_request.html:16
+msgid ""
+"Proporcione el documento correspondiente, su código de acceso y su correo "
+"electrónico registrado para recibir la clave de descifrado."
+msgstr "Proporcione el documento correspondiente, su código de acceso y su correo electrónico registrado para recibir la clave de descifrado."
+
+#: freedec/templates/freedec/public_request.html:24
+msgid "Estado de la Solicitud:"
+msgstr "Estado de la Solicitud:"
+
+#: freedec/templates/freedec/public_request.html:30
+msgid "Información de Entrega:"
+msgstr "Información de Entrega:"
+
+#: freedec/templates/freedec/public_request.html:32
+msgid ""
+"Por motivos de confidencialidad, la clave nunca se muestra en pantalla. Si "
+"el archivo y los datos facilitados corresponden a un registro autorizado, la "
+"contraseña habrá sido remitida a su bandeja de entrada."
+msgstr "Por motivos de confidencialidad, la clave nunca se muestra en pantalla. Si el archivo y los datos facilitados corresponden a un registro autorizado, la contraseña habrá sido remitida a su bandeja de entrada."
+
+#: freedec/templates/freedec/public_request.html:37
+msgid "Realizar Otra Solicitud"
+msgstr "Realizar Otra Solicitud"
+
+#: freedec/views.py:65
+msgid "Ocurrió un error interno procesando y cifrando el documento."
+msgstr "Ocurrió un error interno procesando y cifrando el documento."
+
+#: freedec/views.py:75
+msgid "Documento cifrado y registrado exitosamente."
+msgstr "Documento cifrado y registrado exitosamente."
+

@@ -4,6 +4,7 @@ from django.contrib.auth.hashers import check_password
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils.translation import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
 
@@ -31,60 +32,67 @@ class EncryptedDocument(models.Model):
     original_filename = models.CharField(
         max_length=255,
         default="documento",
-        verbose_name="Nombre original del archivo",
-        help_text="Nombre del archivo original subido por el administrador.",
+        verbose_name=_("Nombre original del archivo"),
+        help_text=_("Nombre del archivo original subido por el administrador."),
     )
     file_hash = models.CharField(
         max_length=64,
         unique=True,
         db_index=True,
-        help_text="Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar.",
+        verbose_name=_("Hash SHA-256"),
+        help_text=_("Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar."),
     )
     encrypted_file = models.FileField(
         upload_to="encrypted_docs/",
-        help_text="Archivo binario cifrado en reposo con Fernet (AES-128-CBC + HMAC).",
+        verbose_name=_("Archivo cifrado"),
+        help_text=_("Archivo binario cifrado en reposo con Fernet (AES-128-CBC + HMAC)."),
     )
     access_code = models.CharField(
         max_length=128,
-        help_text="Hash PBKDF2 del código secreto de acceso necesario para la verificación.",
+        verbose_name=_("Código de acceso"),
+        help_text=_("Hash PBKDF2 del código secreto de acceso necesario para la verificación."),
     )
     encrypted_password = models.TextField(
-        help_text="Contraseña o clave de descifrado cifrada con Fernet (token seguro).",
+        verbose_name=_("Contraseña cifrada"),
+        help_text=_("Contraseña o clave de descifrado cifrada con Fernet (token seguro)."),
     )
     allowed_emails = models.JSONField(
         default=list,
-        help_text="Lista de correos electrónicos autorizados en formato JSON (minúsculas).",
+        verbose_name=_("Correos autorizados"),
+        help_text=_("Lista de correos electrónicos autorizados en formato JSON (minúsculas)."),
     )
     access_count = models.PositiveIntegerField(
         default=0,
-        verbose_name="Veces accedido",
-        help_text="Número total de solicitudes de contraseña o descifrados autorizados.",
+        verbose_name=_("Veces accedido"),
+        help_text=_("Número total de solicitudes de contraseña o descifrados autorizados."),
     )
     last_accessed_at = models.DateTimeField(
         null=True,
         blank=True,
-        verbose_name="Último acceso",
-        help_text="Fecha y hora de la última solicitud de contraseña o descifrado.",
+        verbose_name=_("Último acceso"),
+        help_text=_("Fecha y hora de la última solicitud de contraseña o descifrado."),
     )
     last_accessed_by = models.CharField(
         max_length=254,
         blank=True,
         null=True,
-        verbose_name="Último correo que accedió",
-        help_text="Dirección de correo del último usuario que solicitó la clave.",
+        verbose_name=_("Último correo que accedió"),
+        help_text=_("Dirección de correo del último usuario que solicitó la clave."),
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
-        help_text="Fecha y hora de registro y cifrado del documento.",
+        verbose_name=_("Fecha de creación"),
+        help_text=_("Fecha y hora de registro y cifrado del documento."),
     )
     updated_at = models.DateTimeField(
         auto_now=True,
-        help_text="Fecha y hora de la última modificación del registro.",
+        verbose_name=_("Fecha de actualización"),
+        help_text=_("Fecha y hora de la última modificación del registro."),
     )
 
     class Meta:
-        verbose_name = "Documento Cifrado"
-        verbose_name_plural = "Documentos Cifrados"
+        verbose_name = _("Documento Cifrado")
+        verbose_name_plural = _("Documentos Cifrados")
         ordering = ["-created_at"]
 
     def __str__(self):
@@ -130,31 +138,31 @@ class DocumentAccessLog(models.Model):
         EncryptedDocument,
         on_delete=models.CASCADE,
         related_name="access_logs",
-        verbose_name="Documento",
+        verbose_name=_("Documento"),
     )
     email = models.CharField(
         max_length=254,
-        verbose_name="Correo solicitante",
+        verbose_name=_("Correo solicitante"),
     )
     action = models.CharField(
         max_length=50,
         default="solicitud_clave",
-        verbose_name="Acción",
-        help_text="Tipo de evento: 'solicitud_clave' o 'descifrado'.",
+        verbose_name=_("Acción"),
+        help_text=_("Tipo de evento: 'solicitud_clave' o 'descifrado'."),
     )
     ip_address = models.GenericIPAddressField(
         null=True,
         blank=True,
-        verbose_name="Dirección IP",
+        verbose_name=_("Dirección IP"),
     )
     timestamp = models.DateTimeField(
         auto_now_add=True,
-        verbose_name="Fecha y hora de acceso",
+        verbose_name=_("Fecha y hora de acceso"),
     )
 
     class Meta:
-        verbose_name = "Registro de Auditoría de Acceso"
-        verbose_name_plural = "Registros de Auditoría de Accesos"
+        verbose_name = _("Registro de Auditoría de Acceso")
+        verbose_name_plural = _("Registros de Auditoría de Accesos")
         ordering = ["-timestamp"]
 
     def __str__(self):

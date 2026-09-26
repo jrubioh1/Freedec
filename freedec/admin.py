@@ -3,6 +3,7 @@ from django.contrib import admin, messages
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.utils.translation import gettext_lazy as _
 
 from freedec.models import DocumentAccessLog, EncryptedDocument
 from freedec.services import DocumentManagementService
@@ -123,22 +124,26 @@ class EncryptedDocumentAddForm(forms.ModelForm):
     """
 
     original_file = forms.FileField(
-        label="Archivo Documental Original",
-        help_text="Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt).",
+        label=_("Archivo Documental Original"),
+        help_text=_(
+            "Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
+        ),
     )
     plain_password = forms.CharField(
-        label="Contraseña (Opcional)",
+        label=_("Contraseña (Opcional)"),
         required=False,
         widget=forms.PasswordInput(
-            attrs={"placeholder": "Dejar en blanco para autogenerar una clave segura..."}
+            attrs={"placeholder": _("Dejar en blanco para autogenerar una clave segura...")}
         ),
-        help_text="Opcional. Si se deja en blanco, el sistema genera automáticamente una clave de 24 caracteres.",
+        help_text=_(
+            "Opcional. Si se deja en blanco, el sistema genera automáticamente una clave de 24 caracteres."
+        ),
     )
     allowed_emails = forms.CharField(
-        label="Correos Autorizados",
+        label=_("Correos Autorizados"),
         required=True,
         widget=EmailListAdminWidget(),
-        help_text="Destinatarios autorizados. Use '+' para añadir más direcciones (sin JSON).",
+        help_text=_("Destinatarios autorizados. Use '+' para añadir más direcciones (sin JSON)."),
     )
 
     class Meta:
@@ -168,10 +173,10 @@ class EncryptedDocumentChangeForm(forms.ModelForm):
     """
 
     allowed_emails = forms.CharField(
-        label="Correos Autorizados",
+        label=_("Correos Autorizados"),
         required=True,
         widget=EmailListAdminWidget(),
-        help_text="Destinatarios autorizados. Use '+' para añadir o modificar direcciones.",
+        help_text=_("Destinatarios autorizados. Use '+' para añadir o modificar direcciones."),
     )
 
     class Meta:
@@ -196,8 +201,8 @@ class DocumentAccessLogInline(admin.TabularInline):
     can_delete = False
     readonly_fields = ("email", "action", "ip_address", "timestamp")
     fields = ("timestamp", "email", "action", "ip_address")
-    verbose_name = "Registro de acceso"
-    verbose_name_plural = "Historial de accesos y trazabilidad de clave"
+    verbose_name = _("Registro de acceso")
+    verbose_name_plural = _("Historial de accesos y trazabilidad de clave")
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -232,37 +237,43 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         if obj is None:
             return (
                 (
-                    "Cifrado y Registro de Nuevo Documento",
+                    _("Cifrado y Registro de Nuevo Documento"),
                     {
                         "fields": ("original_file", "plain_password", "allowed_emails"),
-                        "description": "Suba el archivo original. La contraseña y el código de acceso se generarán automáticamente mediante algoritmos de alta entropía.",
+                        "description": _(
+                            "Suba el archivo original. La contraseña y el código de acceso se generarán automáticamente mediante algoritmos de alta entropía."
+                        ),
                     },
                 ),
             )
         return (
             (
-                "Nombre e Identificación Criptográfica",
+                _("Nombre e Identificación Criptográfica"),
                 {
                     "fields": ("original_filename", "file_hash"),
-                    "description": "Nombre original y hash SHA-256 del archivo calculado en la subida.",
+                    "description": _("Nombre original y hash SHA-256 del archivo calculado en la subida."),
                 },
             ),
             (
-                "Almacenamiento Cifrado",
+                _("Almacenamiento Cifrado"),
                 {
                     "fields": ("encrypted_file", "encrypted_password"),
-                    "description": "El archivo y la contraseña se encuentran cifrados en reposo con Fernet (AES-128-CBC + HMAC).",
+                    "description": _(
+                        "El archivo y la contraseña se encuentran cifrados en reposo con Fernet (AES-128-CBC + HMAC)."
+                    ),
                 },
             ),
             (
-                "Seguridad y Control de Acceso",
+                _("Seguridad y Control de Acceso"),
                 {
                     "fields": ("access_code", "allowed_emails"),
-                    "description": "El código de acceso se almacena mediante hash PBKDF2 (Zero-Knowledge). Los correos pueden modificarse usando el botón '+'.",
+                    "description": _(
+                        "El código de acceso se almacena mediante hash PBKDF2 (Zero-Knowledge). Los correos pueden modificarse usando el botón '+'."
+                    ),
                 },
             ),
             (
-                "Auditoría y Trazabilidad de Accesos",
+                _("Auditoría y Trazabilidad de Accesos"),
                 {
                     "fields": (
                         "access_count",
@@ -271,7 +282,9 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                         "created_at",
                         "updated_at",
                     ),
-                    "description": "Registro de actividad y fecha del último acceso o despacho de contraseña.",
+                    "description": _(
+                        "Registro de actividad y fecha del último acceso o despacho de contraseña."
+                    ),
                 },
             ),
         )
@@ -433,11 +446,11 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             )
         return super().response_add(request, obj, post_url_continue=post_url_continue)
 
-    @admin.display(description="Hash SHA-256")
+    @admin.display(description=_("Hash SHA-256"))
     def short_file_hash(self, obj):
         return f"{obj.file_hash[:12]}...{obj.file_hash[-6:]}"
 
-    @admin.display(description="Descargar Cifrado")
+    @admin.display(description=_("Descargar Cifrado"))
     def download_link(self, obj):
         if obj.encrypted_file:
             enc_name = f"{obj.original_filename}.enc"
@@ -449,7 +462,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             )
         return "—"
 
-    @admin.display(description="Eliminar")
+    @admin.display(description=_("Eliminar"))
     def delete_action_button(self, obj):
         url = reverse("admin:freedec_encrypteddocument_delete", args=[obj.pk])
         return format_html(

@@ -1,18 +1,19 @@
 {% extends "freedec/base.html" %}
+{% load i18n %}
 
-{% block title %}Panel de Administrador - Subida y Cifrado | Freedec{% endblock %}
+{% block title %}{% trans "Panel de Administrador - Subida y Cifrado" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🛡️</span> Subida y Cifrado de Documentos
+                <span>🛡️</span> {% trans "Subida y Cifrado de Documentos" %}
             </h1>
-            <span class="badge badge-cyan">Admin Exclusivo</span>
+            <span class="badge badge-cyan">{% trans "Admin Exclusivo" %}</span>
         </div>
         <p class="card-subtitle">
-            Cifra documentos en reposo con AES-128-CBC + HMAC (Fernet), calcula su hash SHA-256 y genera el código de acceso Zero-Knowledge.
+            {% trans "Cifra documentos en reposo con AES-128-CBC + HMAC (Fernet), calcula su hash SHA-256 y genera el código de acceso Zero-Knowledge." %}
         </p>
     </div>
 
@@ -20,53 +21,53 @@
         <!-- Tarjeta de Éxito y Entrega de Credenciales -->
         <div class="alert alert-success">
             <div>
-                <strong>✓ Documento cifrado y registrado exitosamente.</strong><br>
-                El archivo ha sido cifrado en el servidor y almacenado en disco. A continuación se presentan los datos criptográficos generados.
+                <strong>{% trans "✓ Documento cifrado y registrado exitosamente." %}</strong><br>
+                {% trans "El archivo ha sido cifrado en el servidor y almacenado en disco. A continuación se presentan los datos criptográficos generados." %}
             </div>
         </div>
 
         <div style="margin-bottom: 1.5rem;">
-            <label class="form-label">Identificador Criptográfico (Hash SHA-256):</label>
+            <label class="form-label">{% trans "Identificador Criptográfico (Hash SHA-256):" %}</label>
             <div class="token-box" style="border-color: var(--accent-emerald);">
                 <div id="file_hash_text" class="token-display" style="color: #6ee7b7;">{{ document.file_hash }}</div>
                 <button type="button" class="btn btn-secondary copy-btn" onclick="copyText('file_hash_text', this)">
-                    📋 Copiar Hash
+                    📋 {% trans "Copiar Hash" %}
                 </button>
             </div>
         </div>
 
         <div style="margin-bottom: 1.5rem;">
             <label class="form-label" style="color: var(--accent-amber);">
-                ⚠️ Código Secreto de Acceso (Entrega Manual Única):
+                ⚠️ {% trans "Código Secreto de Acceso (Entrega Manual Única):" %}
             </label>
             <div class="token-box" style="border-color: var(--accent-amber); background-color: #1a160b;">
                 <div id="access_code_text" class="token-display" style="color: #fde68a; font-weight: 700; font-size: 1.1rem;">
                     {{ raw_access_code }}
                 </div>
                 <button type="button" class="btn btn-secondary copy-btn" onclick="copyText('access_code_text', this)">
-                    📋 Copiar Código de Acceso
+                    📋 {% trans "Copiar Código de Acceso" %}
                 </button>
             </div>
             <span class="form-help" style="color: #fde68a;">
-                <strong>IMPORTANTE:</strong> Guarde y entregue este código al destinatario a través de un canal seguro fuera de banda (Signal, SMS o en persona). En la base de datos se almacena exclusivamente su hash PBKDF2 (Zero-Knowledge) y <strong>no podrá volver a ser consultado</strong>.
+                {% blocktrans %}<strong>IMPORTANTE:</strong> Guarde y entregue este código al destinatario a través de un canal seguro fuera de banda (Signal, SMS o en persona). En la base de datos se almacena exclusivamente su hash PBKDF2 (Zero-Knowledge) y <strong>no podrá volver a ser consultado</strong>.{% endblocktrans %}
             </span>
         </div>
 
         {% if raw_password %}
         <div style="margin-bottom: 1.5rem;">
             <label class="form-label" style="color: var(--accent-emerald);">
-                🔐 Contraseña de Descifrado Asignada / Generada:
+                🔐 {% trans "Contraseña de Descifrado Asignada / Generada:" %}
             </label>
             <div class="token-box" style="border-color: var(--accent-emerald); background-color: #0d1e17;">
                 <div id="password_text" class="token-display" style="color: #34d399; font-weight: 700; font-size: 1.1rem;">
                     {{ raw_password }}
                 </div>
                 <button type="button" class="btn btn-secondary copy-btn" onclick="copyText('password_text', this)">
-                    📋 Copiar Contraseña
+                    📋 {% trans "Copiar Contraseña" %}
                 </button>
             </div>
             <span class="form-help">
-                Esta es la contraseña que descifra el documento. El sistema la remitirá al correo del usuario cuando la solicite.
+                {% trans "Esta es la contraseña que descifra el documento. El sistema la remitirá al correo del usuario cuando la solicite." %}
             </span>
         </div>
         {% endif %}
@@ -74,13 +75,13 @@
         {% if txt_data_uri %}
         <div style="margin-bottom: 1.5rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 1rem;">
             <label class="form-label" style="color: #34d399;">
-                📄 Archivo de Control y Credenciales (.txt) para el Administrador:
+                📄 {% trans "Archivo de Control y Credenciales (.txt) para el Administrador:" %}
             </label>
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-                Guarda este archivo en tu equipo. Contiene todos los datos (nombre, hash, código de acceso y contraseña) para que puedas consultarlos o acceder si lo necesitas.
+                {% trans "Guarda este archivo en tu equipo. Contiene todos los datos (nombre, hash, código de acceso y contraseña) para que puedas consultarlos o acceder si lo necesitas." %}
             </p>
             <a id="auto_dl_creds_btn" href="{{ txt_data_uri }}" download="{{ txt_filename }}" class="btn btn-secondary" style="width: auto; background-color: #10b981; color: #0f172a; font-weight: bold;">
-                📥 Descargar {{ txt_filename }}
+                📥 {% trans "Descargar" %} {{ txt_filename }}
             </a>
             <script>
                 (function() {
@@ -95,15 +96,15 @@
 
         {% if encrypted_file_url %}
         <div style="margin-bottom: 1.5rem;">
-            <label class="form-label">Archivo Cifrado para Distribución:</label>
+            <label class="form-label">{% trans "Archivo Cifrado para Distribución:" %}</label>
             <a href="{{ encrypted_file_url }}" download="{{ document.original_filename }}.enc" class="btn btn-secondary" style="width: auto; margin-top: 0.25rem;">
-                📥 Descargar Archivo Cifrado ({{ document.original_filename }}.enc)
+                📥 {% trans "Descargar Archivo Cifrado" %} ({{ document.original_filename }}.enc)
             </a>
         </div>
         {% endif %}
 
         <div style="margin-bottom: 2rem;">
-            <label class="form-label">Destinatarios Autorizados:</label>
+            <label class="form-label">{% trans "Destinatarios Autorizados:" %}</label>
             <ul style="list-style: none; margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
                 {% for email in document.allowed_emails %}
                     <li class="badge badge-cyan" style="font-size: 0.85rem; text-transform: none;">{{ email }}</li>
@@ -112,7 +113,7 @@
         </div>
 
         <a href="{% url 'freedec:gui-admin-upload' %}" class="btn btn-primary">
-            ➕ Cifrar y Registrar Otro Documento
+            ➕ {% trans "Cifrar y Registrar Otro Documento" %}
         </a>
 
     {% else %}
@@ -159,10 +160,10 @@
             <div class="form-group">
                 <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
                     <label class="form-label" style="margin-bottom: 0;">
-                        Correos Electrónicos Autorizados *
+                        {% trans "Correos Electrónicos Autorizados" %} *
                     </label>
                     <span style="font-size: 0.8rem; color: var(--text-muted);">
-                        Destinatarios autorizados
+                        {% trans "Destinatarios autorizados" %}
                     </span>
                 </div>
 
@@ -178,10 +179,10 @@
                                    value="{{ email_val }}" 
                                    required>
                             <button type="button" 
-                                    class="btn btn-secondary btn-remove-email" 
-                                    onclick="removeEmailRow(this)" 
-                                    title="Eliminar este correo"
-                                    style="padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;">
+                                     class="btn btn-secondary btn-remove-email" 
+                                     onclick="removeEmailRow(this)" 
+                                     title="{% trans 'Eliminar este correo' %}"
+                                     style="padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;">
                                 ✕
                             </button>
                         </div>
@@ -194,10 +195,10 @@
                                    placeholder="destinatario@empresa.com" 
                                    required>
                             <button type="button" 
-                                    class="btn btn-secondary btn-remove-email" 
-                                    onclick="removeEmailRow(this)" 
-                                    title="Eliminar este correo"
-                                    style="padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;">
+                                     class="btn btn-secondary btn-remove-email" 
+                                     onclick="removeEmailRow(this)" 
+                                     title="{% trans 'Eliminar este correo' %}"
+                                     style="padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;">
                                 ✕
                             </button>
                         </div>
@@ -210,9 +211,9 @@
                             class="btn btn-secondary" 
                             onclick="addEmailRow()"
                             style="padding: 0.45rem 0.9rem; font-size: 0.85rem; border-color: var(--accent-cyan); color: var(--accent-cyan); background: rgba(6, 182, 212, 0.08);">
-                        ➕ Añadir otro correo
+                        ➕ {% trans "Añadir otro correo" %}
                     </button>
-                    <span class="form-help" style="margin-top: 0;">Solo las direcciones autorizadas podrán solicitar y recibir la clave.</span>
+                    <span class="form-help" style="margin-top: 0;">{% trans "Solo las direcciones autorizadas podrán solicitar y recibir la clave." %}</span>
                 </div>
 
                 {% if form.allowed_emails.errors %}
@@ -223,14 +224,14 @@
             </div>
 
             <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-                🔒 Cifrar, Hashear y Registrar Documento
+                🔒 {% trans "Cifrar, Hashear y Registrar Documento" %}
             </button>
         </form>
 
         <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); display: flex; gap: 1.5rem; font-size: 0.85rem; color: var(--text-muted);">
-            <div><strong>Cifrado:</strong> AES-128-CBC + HMAC (Fernet)</div>
-            <div><strong>Identificación:</strong> SHA-256 Streaming</div>
-            <div><strong>Seguridad:</strong> Zero-Knowledge PBKDF2</div>
+            <div><strong>{% trans "Cifrado:" %}</strong> AES-128-CBC + HMAC (Fernet)</div>
+            <div><strong>{% trans "Identificación:" %}</strong> SHA-256 Streaming</div>
+            <div><strong>{% trans "Seguridad:" %}</strong> Zero-Knowledge PBKDF2</div>
         </div>
     {% endif %}
 </div>
@@ -256,7 +257,7 @@
         removeBtn.type = 'button';
         removeBtn.className = 'btn btn-secondary btn-remove-email';
         removeBtn.style.cssText = 'padding: 0.65rem 0.9rem; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.25); background: rgba(244, 63, 94, 0.08); flex-shrink: 0;';
-        removeBtn.title = 'Eliminar este correo';
+        removeBtn.title = "{% trans 'Eliminar este correo' %}";
         removeBtn.textContent = '✕';
         removeBtn.onclick = function() { removeEmailRow(removeBtn); };
 

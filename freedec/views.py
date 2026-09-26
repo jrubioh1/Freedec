@@ -1,6 +1,7 @@
 import logging
 from django.core.exceptions import ValidationError
 from django.urls import reverse
+from django.utils.translation import gettext as _
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -61,7 +62,7 @@ class AdminDocumentUploadView(APIView):
         except Exception as exc:
             logger.exception(f"[FREEDEC ERROR] Fallo inesperado al procesar subida de documento: {exc}")
             return Response(
-                {"error": "Ocurrió un error interno procesando y cifrando el documento."},
+                {"error": _("Ocurrió un error interno procesando y cifrando el documento.")},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -71,7 +72,7 @@ class AdminDocumentUploadView(APIView):
 
         response_data = {
             "status": "success",
-            "message": "Documento cifrado y registrado exitosamente.",
+            "message": _("Documento cifrado y registrado exitosamente."),
             "file_hash": document.file_hash,
             "encrypted_file_url": encrypted_file_url,
             "access_code": raw_access_code,

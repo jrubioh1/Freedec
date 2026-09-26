@@ -1,10 +1,10 @@
-<!DOCTYPE html>
-<html lang="es">
+{% load i18n %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'es' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>{% block title %}Freedec - Cifrado y Recuperación Segura{% endblock %}</title>
+    <title>{% block title %}{% trans "Freedec - Cifrado y Recuperación Segura" %}{% endblock %}</title>
     <style>
         :root {
             --bg-dark: #0f172a;
@@ -343,11 +343,22 @@
                 <span>Freedec</span>
             </a>
             <div class="nav-links">
-                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">🔑 Solicitar Contraseña</a>
-                <a href="{% url 'freedec:gui-public-decrypt' %}" class="nav-link">🔓 Descifrar Archivo (.enc)</a>
-                <span class="badge badge-emerald" style="padding: 0.4rem 0.85rem; font-size: 0.8rem;">
-                    🛡️ Portal Seguro
-                </span>
+                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">🔑 {% trans "Solicitar Contraseña" %}</a>
+                <a href="{% url 'freedec:gui-public-decrypt' %}" class="nav-link">🔓 {% trans "Descifrar Archivo (.enc)" %}</a>
+                <div class="lang-switcher" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.05); padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border-color); margin-left: 0.5rem;">
+                    <a href="{% url 'freedec:set-language' %}?lang=es&next={{ request.get_full_path|urlencode }}" 
+                       class="lang-link" 
+                       title="Español" 
+                       style="text-decoration: none; padding: 2px 7px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; color: {% if LANGUAGE_CODE|slice:':2' == 'es' %}#0f172a{% else %}var(--text-muted){% endif %}; background: {% if LANGUAGE_CODE|slice:':2' == 'es' %}var(--accent-cyan){% else %}transparent{% endif %}; transition: all 0.2s ease;">
+                       🇪🇸 ES
+                    </a>
+                    <a href="{% url 'freedec:set-language' %}?lang=en&next={{ request.get_full_path|urlencode }}" 
+                       class="lang-link" 
+                       title="English" 
+                       style="text-decoration: none; padding: 2px 7px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; color: {% if LANGUAGE_CODE|slice:':2' == 'en' %}#0f172a{% else %}var(--text-muted){% endif %}; background: {% if LANGUAGE_CODE|slice:':2' == 'en' %}var(--accent-cyan){% else %}transparent{% endif %}; transition: all 0.2s ease;">
+                       🇬🇧 EN
+                    </a>
+                </div>
             </div>
         </nav>
     </header>
@@ -357,7 +368,7 @@
     </main>
 
     <footer>
-        <p>Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y Recuperación de Contraseñas</p>
+        <p>{% blocktrans %}Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y Recuperación de Contraseñas{% endblocktrans %}</p>
     </footer>
 
     <script>
@@ -365,7 +376,7 @@
             const text = document.getElementById(elementId).innerText.trim();
             navigator.clipboard.writeText(text).then(() => {
                 const originalText = btnElement.innerText;
-                btnElement.innerText = "✓ ¡Copiado!";
+                btnElement.innerText = "{% trans '✓ ¡Copiado!' %}";
                 btnElement.style.backgroundColor = "var(--accent-emerald)";
                 btnElement.style.color = "#0f172a";
                 setTimeout(() => {

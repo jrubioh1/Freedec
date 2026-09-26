@@ -1,25 +1,26 @@
 {% extends "freedec/base.html" %}
+{% load i18n %}
 
-{% block title %}Descifrar Documento (.enc) | Freedec{% endblock %}
+{% block title %}{% trans "Descifrar Documento (.enc)" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🔓</span> Descifrar Archivo Cifrado
+                <span>🔓</span> {% trans "Descifrar Archivo Cifrado" %}
             </h1>
-            <span class="badge badge-emerald">Descarga Segura</span>
+            <span class="badge badge-emerald">{% trans "Descarga Segura" %}</span>
         </div>
         <p class="card-subtitle">
-            Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le enviamos a su correo para recuperar y descargar el documento original.
+            {% blocktrans %}Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le enviamos a su correo para recuperar y descargar el documento original.{% endblocktrans %}
         </p>
     </div>
 
     {% if error_message %}
         <div class="alert alert-error">
             <div>
-                <strong>⚠️ Error en el descifrado:</strong><br>
+                <strong>⚠️ {% trans "Error en el descifrado:" %}</strong><br>
                 {{ error_message }}
             </div>
         </div>
@@ -63,14 +64,14 @@
         </div>
 
         <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-            📥 Descifrar y Descargar Archivo Original
+            📥 {% trans "Descifrar y Descargar Archivo Original" %}
         </button>
     </form>
 
     <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
-        <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ ¿Aún no tienes la contraseña?</h3>
+        <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ {% trans "¿Aún no tienes la contraseña?" %}</h3>
         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-            Si tienes el archivo pero no has solicitado la contraseña, ve a <a href="{% url 'freedec:gui-public-request' %}" style="color: var(--accent-cyan); text-decoration: underline;">Solicitar Contraseña</a>, sube tu archivo e introduce tu código de acceso para recibirla en tu correo electrónico.
+            {% trans "Si tienes el archivo pero no has solicitado la contraseña, ve a" %} <a href="{% url 'freedec:gui-public-request' %}" style="color: var(--accent-cyan); text-decoration: underline;">{% trans "Solicitar Contraseña" %}</a>, {% trans "sube tu archivo e introduce tu código de acceso para recibirla en tu correo electrónico." %}
         </p>
     </div>
 </div>

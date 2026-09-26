@@ -1,18 +1,19 @@
 {% extends "freedec/base.html" %}
+{% load i18n %}
 
-{% block title %}Entrega Segura de Contraseña | Freedec{% endblock %}
+{% block title %}{% trans "Entrega Segura de Contraseña" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🔐</span> Entrega Segura de Contraseña
+                <span>🔐</span> {% trans "Entrega Segura de Contraseña" %}
             </h1>
-            <span class="badge badge-emerald">Portal de Usuario</span>
+            <span class="badge badge-emerald">{% trans "Portal de Usuario" %}</span>
         </div>
         <p class="card-subtitle">
-            Proporcione el documento correspondiente, su código de acceso y su correo electrónico registrado para recibir la clave de descifrado.
+            {% trans "Proporcione el documento correspondiente, su código de acceso y su correo electrónico registrado para recibir la clave de descifrado." %}
         </p>
     </div>
 
@@ -20,20 +21,20 @@
         <!-- Respuesta Neutra (Anti-Enumeración) -->
         <div class="alert {% if is_success %}alert-success{% else %}alert-warning{% endif %}">
             <div>
-                <strong>Estado de la Solicitud:</strong><br>
+                <strong>{% trans "Estado de la Solicitud:" %}</strong><br>
                 {{ result_message }}
             </div>
         </div>
 
         <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem;">
-            <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ Información de Entrega:</h3>
+            <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ {% trans "Información de Entrega:" %}</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-                Por motivos de confidencialidad, la clave nunca se muestra en pantalla. Si el archivo y los datos facilitados corresponden a un registro autorizado, la contraseña habrá sido remitida a su bandeja de entrada.
+                {% trans "Por motivos de confidencialidad, la clave nunca se muestra en pantalla. Si el archivo y los datos facilitados corresponden a un registro autorizado, la contraseña habrá sido remitida a su bandeja de entrada." %}
             </p>
         </div>
 
         <a href="{% url 'freedec:gui-public-request' %}" class="btn btn-secondary">
-            🔄 Realizar Otra Solicitud
+            🔄 {% trans "Realizar Otra Solicitud" %}
         </a>
 
     {% else %}
@@ -89,7 +90,7 @@
             </div>
 
             <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-                📨 Solicitar Contraseña
+                📨 {% trans "Solicitar Contraseña" %}
             </button>
         </form>
     {% endif %}

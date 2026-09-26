@@ -1,6 +1,7 @@
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
 
 from freedec.validators import (
     normalize_and_validate_email_list,
@@ -18,44 +19,50 @@ class AdminDocumentUploadForm(forms.Form):
     """
 
     original_file = forms.FileField(
-        label="Archivo Documental",
-        help_text="Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt).",
+        label=_("Archivo Documental"),
+        help_text=_(
+            "Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
+        ),
         widget=forms.FileInput(attrs={"class": "form-file-input", "id": "original_file"}),
     )
     plain_password = forms.CharField(
-        label="Contraseña de Descifrado",
+        label=_("Contraseña de Descifrado"),
         min_length=8,
         widget=forms.PasswordInput(
             attrs={
                 "class": "form-control",
-                "placeholder": "Mínimo 8 caracteres de alta entropía...",
+                "placeholder": _("Mínimo 8 caracteres de alta entropía..."),
                 "id": "plain_password",
             }
         ),
-        help_text="Clave que será cifrada internamente con Fernet (AES-128-CBC + HMAC).",
+        help_text=_("Clave que será cifrada internamente con Fernet (AES-128-CBC + HMAC)."),
     )
     allowed_emails = forms.CharField(
-        label="Correos Electrónicos Autorizados",
+        label=_("Correos Electrónicos Autorizados"),
         required=False,
         widget=forms.EmailInput(
             attrs={
                 "class": "form-control",
-                "placeholder": "destinatario@empresa.com",
+                "placeholder": _("destinatario@empresa.com"),
                 "id": "allowed_emails",
             }
         ),
-        help_text="Direcciones de correo autorizadas a recibir la contraseña. Use el botón '+' para agregar más destinatarios.",
+        help_text=_(
+            "Direcciones de correo autorizadas a recibir la contraseña. Use el botón '+' para agregar más destinatarios."
+        ),
     )
 
     def clean_original_file(self):
         file_obj = self.cleaned_data.get("original_file")
         if not file_obj:
-            raise ValidationError("Debe seleccionar un archivo.")
+            raise ValidationError(_("Debe seleccionar un archivo."))
 
         max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
         if file_obj.size > max_size:
+            max_mb = max_size // (1024 * 1024)
             raise ValidationError(
-                f"El archivo excede el tamaño máximo permitido de {max_size // (1024 * 1024)} MB."
+                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
+                % {"max_size": max_mb}
             )
 
         # Validación estructural y de firmas binarias (Magic Bytes & Anti-Zip Bomb)
@@ -79,43 +86,45 @@ class PublicPasswordRequestForm(forms.Form):
     """
 
     file = forms.FileField(
-        label="Documento",
-        help_text="Seleccione el archivo que desea consultar.",
+        label=_("Documento"),
+        help_text=_("Seleccione el archivo que desea consultar."),
         widget=forms.FileInput(attrs={"class": "form-file-input", "id": "public_file"}),
     )
     access_code = forms.CharField(
-        label="Código de Acceso",
+        label=_("Código de Acceso"),
         widget=forms.TextInput(
             attrs={
                 "class": "form-control font-mono",
-                "placeholder": "Introduzca su código de acceso...",
+                "placeholder": _("Introduzca su código de acceso..."),
                 "id": "access_code",
                 "autocomplete": "off",
             }
         ),
-        help_text="Código facilitado por el emisor del documento.",
+        help_text=_("Código facilitado por el emisor del documento."),
     )
     email = forms.CharField(
-        label="Correo Electrónico",
+        label=_("Correo Electrónico"),
         widget=forms.EmailInput(
             attrs={
                 "class": "form-control",
-                "placeholder": "su-correo@ejemplo.com",
+                "placeholder": _("su-correo@ejemplo.com"),
                 "id": "email",
             }
         ),
-        help_text="Dirección de correo donde se enviará la contraseña.",
+        help_text=_("Dirección de correo donde se enviará la contraseña."),
     )
 
     def clean_file(self):
         file_obj = self.cleaned_data.get("file")
         if not file_obj:
-            raise ValidationError("Debe proporcionar un archivo.")
+            raise ValidationError(_("Debe proporcionar un archivo."))
 
         max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
         if file_obj.size > max_size:
+            max_mb = max_size // (1024 * 1024)
             raise ValidationError(
-                f"El archivo excede el tamaño máximo permitido de {max_size // (1024 * 1024)} MB."
+                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
+                % {"max_size": max_mb}
             )
 
         name_lower = (file_obj.name or "").lower()
@@ -136,37 +145,39 @@ class PublicDecryptDocumentForm(forms.Form):
     """
 
     file = forms.FileField(
-        label="Archivo Cifrado (.enc)",
-        help_text="Seleccione el archivo con extensión .enc que desea descifrar.",
+        label=_("Archivo Cifrado (.enc)"),
+        help_text=_("Seleccione el archivo con extensión .enc que desea descifrar."),
         widget=forms.FileInput(attrs={"class": "form-file-input", "id": "enc_file"}),
     )
     password = forms.CharField(
-        label="Contraseña de Descifrado",
+        label=_("Contraseña de Descifrado"),
         widget=forms.PasswordInput(
             attrs={
                 "class": "form-control font-mono",
-                "placeholder": "Pegue la contraseña recibida por correo...",
+                "placeholder": _("Pegue la contraseña recibida por correo..."),
                 "id": "decrypt_password",
                 "autocomplete": "off",
             }
         ),
-        help_text="Contraseña que le fue remitida a su correo electrónico tras la verificación.",
+        help_text=_("Contraseña que le fue remitida a su correo electrónico tras la verificación."),
     )
 
     def clean_file(self):
         file_obj = self.cleaned_data.get("file")
         if not file_obj:
-            raise ValidationError("Debe proporcionar un archivo.")
+            raise ValidationError(_("Debe proporcionar un archivo."))
 
         max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
         if file_obj.size > max_size:
+            max_mb = max_size // (1024 * 1024)
             raise ValidationError(
-                f"El archivo excede el tamaño máximo permitido de {max_size // (1024 * 1024)} MB."
+                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
+                % {"max_size": max_mb}
             )
         return file_obj
 
     def clean_password(self):
         pwd = self.cleaned_data.get("password", "")
         if not pwd or not pwd.strip():
-            raise ValidationError("Debe introducir la contraseña de descifrado.")
+            raise ValidationError(_("Debe introducir la contraseña de descifrado."))
         return pwd.strip()

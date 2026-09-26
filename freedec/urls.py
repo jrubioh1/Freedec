@@ -4,6 +4,7 @@ from freedec.gui_views import (
     AdminUploadGuiView,
     PublicDecryptGuiView,
     PublicRequestGuiView,
+    set_language_view,
 )
 from freedec.views import AdminDocumentUploadView, PublicPasswordRequestView
 
@@ -13,6 +14,12 @@ urlpatterns = [
     # ==========================================================================
     # INTERFAZ GRÁFICA DE USUARIO (WEB GUI)
     # ==========================================================================
+    # Selector de idioma para internacionalización (i18n)
+    path(
+        "set-language/",
+        set_language_view,
+        name="set-language",
+    ),
     # Portal público web para recuperación de contraseñas
     path(
         "",

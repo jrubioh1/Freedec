@@ -15,6 +15,7 @@ from django.core.files.base import ContentFile
 from django.core.mail import BadHeaderError, send_mail
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from freedec.models import DocumentAccessLog, EncryptedDocument
 from freedec.validators import validate_document_file, validate_safe_email
@@ -217,8 +218,10 @@ class DocumentManagementService:
         """
         max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
         if hasattr(original_file, "size") and original_file.size > max_size:
+            max_mb = max_size // (1024 * 1024)
             raise ValidationError(
-                f"El archivo excede el tamaño máximo permitido de {max_size // (1024 * 1024)} MB."
+                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
+                % {"max_size": max_mb}
             )
 
         # Validación estructural y de firmas binarias (OWASP A03 / A08)
@@ -229,7 +232,8 @@ class DocumentManagementService:
 
         if EncryptedDocument.objects.filter(file_hash=file_hash).exists():
             raise ValidationError(
-                f"Ya existe un documento registrado con el hash SHA-256: {file_hash}."
+                _("Ya existe un documento registrado con el hash SHA-256: %(file_hash)s.")
+                % {"file_hash": file_hash}
             )
 
         # 2. Lectura y cifrado del archivo original
@@ -310,10 +314,10 @@ class DocumentManagementService:
         """
         max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
         if hasattr(uploaded_file, "size") and uploaded_file.size > max_size:
-            return False, "El archivo supera el tamaño máximo permitido."
+            return False, _("El archivo supera el tamaño máximo permitido.")
 
         # Respuesta unificada de seguridad para mitigar enumeración de archivos y usuarios
-        safe_generic_response = (
+        safe_generic_response = _(
             "Si el archivo, el código de acceso y el correo electrónico coinciden con los "
             "registros autorizados, la clave de descifrado ha sido enviada a su buzón."
         )
@@ -391,7 +395,7 @@ class DocumentManagementService:
             logger.error(
                 f"[FREEDEC SECURITY CRITICAL] Fallo al descifrar contraseña interna de {calculated_hash}: {exc}"
             )
-            return False, "Error interno en el procesamiento criptográfico."
+            return False, _("Error interno en el procesamiento criptográfico.")
 
         # Registrar auditoría y trazabilidad de acceso
         now = timezone.now()
@@ -412,7 +416,9 @@ class DocumentManagementService:
 
         # 6. Envío exclusivo y automatizado de la clave mediante django.core.mail
         doc_display_name = document.original_filename or f"Documento_{calculated_hash[:8]}"
-        subject = f"[Freedec] Clave de recuperación para su documento: {doc_display_name}"
+        subject = _("[Freedec] Clave de recuperación para su documento: %(doc_name)s") % {
+            "doc_name": doc_display_name
+        }
         target_decrypt_url = decrypt_url or getattr(settings, "FREEDEC_PUBLIC_DECRYPT_URL", None)
         if not target_decrypt_url:
             try:
@@ -422,19 +428,24 @@ class DocumentManagementService:
                 target_decrypt_url = "/freedec/descifrar/"
 
         message_body = (
-            f"Estimado usuario,\n\n"
-            f"Se ha verificado con éxito su documento y su autorización de acceso.\n\n"
-            f"📄 Nombre del archivo: {doc_display_name}\n\n"
-            f"Su contraseña o clave de descifrado es:\n"
-            f"--------------------------------------------------\n"
-            f"{plain_password}\n"
-            f"--------------------------------------------------\n\n"
-            f"Para descifrar su archivo '{doc_display_name}.enc' y recuperar el documento original sin cifrar, "
-            f"puede acceder al portal público en la pestaña 'Descifrar Archivo (.enc)':\n"
-            f"{target_decrypt_url}\n\n"
-            f"Por motivos de seguridad, no comparta esta clave con terceros.\n\n"
-            f"Atentamente,\n"
-            f"Sistema Automatizado Freedec"
+            _("Estimado usuario,") + "\n\n"
+            + _("Se ha verificado con éxito su documento y su autorización de acceso.") + "\n\n"
+            + (_("📄 Nombre del archivo: %(doc_name)s") % {"doc_name": doc_display_name}) + "\n\n"
+            + _("Su contraseña o clave de descifrado es:") + "\n"
+            + "--------------------------------------------------\n"
+            + f"{plain_password}\n"
+            + "--------------------------------------------------\n\n"
+            + (
+                _(
+                    "Para descifrar su archivo '%(enc_name)s' y recuperar el documento original sin cifrar, "
+                    "puede acceder al portal público en la pestaña 'Descifrar Archivo (.enc)':"
+                )
+                % {"enc_name": f"{doc_display_name}.enc"}
+            ) + "\n"
+            + f"{target_decrypt_url}\n\n"
+            + _("Por motivos de seguridad, no comparta esta clave con terceros.") + "\n\n"
+            + _("Atentamente,") + "\n"
+            + _("Sistema Automatizado Freedec")
         )
         from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local")
 
@@ -452,10 +463,10 @@ class DocumentManagementService:
             )
         except BadHeaderError as exc:
             logger.error(f"[FREEDEC SECURITY CRITICAL] Intento de inyección de cabeceras en correo: {exc}")
-            return False, "Error de validación en los parámetros del mensaje de correo."
+            return False, _("Error de validación en los parámetros del mensaje de correo.")
         except Exception as exc:
             logger.error(f"[FREEDEC ERROR] Fallo al enviar correo electrónico a '{normalized_email}': {exc}")
-            return False, "Error al enviar el correo electrónico con las credenciales."
+            return False, _("Error al enviar el correo electrónico con las credenciales.")
 
         return True, safe_generic_response
 
@@ -482,7 +493,7 @@ class DocumentManagementService:
             (éxito: bool, bytes_descifrados: Optional[bytes], nombre_archivo: Optional[str], mimetype: Optional[str], mensaje: str)
         """
         if not password or not password.strip():
-            return False, None, None, None, "Debe proporcionar la contraseña de descifrado recibida por correo."
+            return False, None, None, None, _("Debe proporcionar la contraseña de descifrado recibida por correo.")
 
         if hasattr(encrypted_file_obj, "seek"):
             encrypted_file_obj.seek(0)
@@ -494,31 +505,31 @@ class DocumentManagementService:
         )
 
         if not enc_bytes:
-            return False, None, None, None, "El archivo cifrado está vacío."
+            return False, None, None, None, _("El archivo cifrado está vacío.")
 
         # 1. Descifrar con Fernet
         try:
             decrypted_bytes = self.crypto_service.decrypt_bytes(enc_bytes)
         except Exception:
-            return False, None, None, None, "El archivo no es un archivo cifrado válido de Freedec o está dañado."
+            return False, None, None, None, _("El archivo no es un archivo cifrado válido de Freedec o está dañado.")
 
         # 2. Localizar registro por hash SHA-256
         calculated_hash = hashlib.sha256(decrypted_bytes).hexdigest()
         document = EncryptedDocument.objects.filter(file_hash=calculated_hash).first()
 
         if not document:
-            return False, None, None, None, "No se encontró ningún registro correspondiente a este archivo."
+            return False, None, None, None, _("No se encontró ningún registro correspondiente a este archivo.")
 
         # 3. Descifrar contraseña almacenada y comparar en tiempo constante
         try:
             stored_password = self.crypto_service.decrypt_string(document.encrypted_password)
         except Exception as exc:
             logger.error(f"[FREEDEC SECURITY CRITICAL] Error al descifrar contraseña interna para hash {calculated_hash}: {exc}")
-            return False, None, None, None, "Error interno en la verificación criptográfica."
+            return False, None, None, None, _("Error interno en la verificación criptográfica.")
 
         if not secrets.compare_digest(stored_password, password.strip()):
             logger.warning(f"[FREEDEC SECURITY] Contraseña incorrecta para el documento con hash {calculated_hash}.")
-            return False, None, None, None, "La contraseña introducida no coincide con la clave del documento."
+            return False, None, None, None, _("La contraseña introducida no coincide con la clave del documento.")
 
         # Registrar auditoría y trazabilidad del descifrado
         now = timezone.now()
@@ -541,4 +552,4 @@ class DocumentManagementService:
         suggested_filename = document.original_filename or f"documento_{calculated_hash[:8]}{ext}"
 
         logger.info(f"[FREEDEC AUDIT] Documento '{suggested_filename}' descifrado exitosamente con su contraseña.")
-        return True, decrypted_bytes, suggested_filename, mimetype, "Documento descifrado correctamente."
+        return True, decrypted_bytes, suggested_filename, mimetype, _("Documento descifrado correctamente.")
