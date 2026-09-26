@@ -1,6 +1,8 @@
 import hashlib
 import io
 import zipfile
+import shutil
+import tempfile
 from cryptography.fernet import Fernet
 from django.core import mail
 from django.core.exceptions import ValidationError
@@ -48,6 +50,19 @@ def create_minimal_docx_bytes() -> bytes:
 @override_settings(FREEDEC_FERNET_KEY=TEST_FERNET_KEY, TESTING=True)
 class FreedecServicesSecurityTestCase(TestCase):
     """Pruebas unitarias de ciberseguridad, formatos y servicios de Freedec."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media = tempfile.mkdtemp()
+        cls._media_override = override_settings(MEDIA_ROOT=cls._temp_media)
+        cls._media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._media_override.disable()
+        shutil.rmtree(cls._temp_media, ignore_errors=True)
+        super().tearDownClass()
 
     def setUp(self):
         self.crypto_service = FernetCryptoService(key=TEST_FERNET_KEY)

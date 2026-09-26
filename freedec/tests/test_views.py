@@ -1,4 +1,6 @@
 import hashlib
+import shutil
+import tempfile
 from cryptography.fernet import Fernet
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -27,6 +29,19 @@ MINIMAL_VALID_PDF = (
 @override_settings(FREEDEC_FERNET_KEY=TEST_FERNET_KEY, TESTING=True)
 class FreedecViewsAPITestCase(APITestCase):
     """Pruebas de integración para API REST e Interfaz Gráfica Web (GUI)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media = tempfile.mkdtemp()
+        cls._media_override = override_settings(MEDIA_ROOT=cls._temp_media)
+        cls._media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._media_override.disable()
+        shutil.rmtree(cls._temp_media, ignore_errors=True)
+        super().tearDownClass()
 
     def setUp(self):
         self.admin_user = User.objects.create_user(

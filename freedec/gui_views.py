@@ -75,11 +75,47 @@ class AdminUploadGuiView(LoginRequiredMixin, View):
         if document.encrypted_file:
             encrypted_url = request.build_absolute_uri(document.encrypted_file.url)
 
+        import urllib.parse
+        txt_filename = f"{document.original_filename}_credenciales.txt"
+        creds_text = (
+            "================================================================================\n"
+            "FREEDEC - CREDENCIALES DE RECUPERACIÓN Y CONTROL DE DOCUMENTO\n"
+            "================================================================================\n\n"
+            f"DOCUMENTO ORIGINAL:  {document.original_filename}\n"
+            f"ARCHIVO CIFRADO:     {document.original_filename}.enc\n"
+            f"HASH SHA-256:        {document.file_hash}\n"
+            f"FECHA DE REGISTRO:   {document.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if document.created_at else ''}\n\n"
+            "--------------------------------------------------------------------------------\n"
+            "1. CÓDIGO SECRETO DE ACCESO (ZERO-KNOWLEDGE):\n"
+            "--------------------------------------------------------------------------------\n"
+            f"{raw_access_code}\n\n"
+            "* Entregue este código al destinatario por canal seguro (Signal, SMS o en persona).\n\n"
+            "--------------------------------------------------------------------------------\n"
+            "2. CONTRASEÑA O CLAVE DE DESCIFRADO:\n"
+            "--------------------------------------------------------------------------------\n"
+            f"{getattr(document, 'generated_password', plain_password) or ''}\n\n"
+            "* Esta clave descifra el archivo .enc y permite recuperar el archivo original.\n\n"
+            "--------------------------------------------------------------------------------\n"
+            "3. DESTINATARIOS AUTORIZADOS:\n"
+            "--------------------------------------------------------------------------------\n"
+            + "\n".join(f"- {e}" for e in (document.allowed_emails or [])) + "\n\n"
+            "--------------------------------------------------------------------------------\n"
+            "4. PORTALES DE ACCESO:\n"
+            "--------------------------------------------------------------------------------\n"
+            "- Solicitar Contraseña:  http://127.0.0.1:8000/\n"
+            "- Descifrar Archivo:     http://127.0.0.1:8000/descifrar/\n"
+            "================================================================================\n"
+        )
+        txt_data_uri = f"data:text/plain;charset=utf-8,{urllib.parse.quote(creds_text)}"
+
         context = {
             "success": True,
             "document": document,
             "raw_access_code": raw_access_code,
+            "raw_password": getattr(document, "generated_password", plain_password),
             "encrypted_file_url": encrypted_url,
+            "txt_data_uri": txt_data_uri,
+            "txt_filename": txt_filename,
         }
         return render(request, self.template_name, context, status=201)
 

@@ -52,11 +52,52 @@
             </span>
         </div>
 
+        {% if raw_password %}
+        <div style="margin-bottom: 1.5rem;">
+            <label class="form-label" style="color: var(--accent-emerald);">
+                🔐 Contraseña de Descifrado Asignada / Generada:
+            </label>
+            <div class="token-box" style="border-color: var(--accent-emerald); background-color: #0d1e17;">
+                <div id="password_text" class="token-display" style="color: #34d399; font-weight: 700; font-size: 1.1rem;">
+                    {{ raw_password }}
+                </div>
+                <button type="button" class="btn btn-secondary copy-btn" onclick="copyText('password_text', this)">
+                    📋 Copiar Contraseña
+                </button>
+            </div>
+            <span class="form-help">
+                Esta es la contraseña que descifra el documento. El sistema la remitirá al correo del usuario cuando la solicite.
+            </span>
+        </div>
+        {% endif %}
+
+        {% if txt_data_uri %}
+        <div style="margin-bottom: 1.5rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 1rem;">
+            <label class="form-label" style="color: #34d399;">
+                📄 Archivo de Control y Credenciales (.txt) para el Administrador:
+            </label>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                Guarda este archivo en tu equipo. Contiene todos los datos (nombre, hash, código de acceso y contraseña) para que puedas consultarlos o acceder si lo necesitas.
+            </p>
+            <a id="auto_dl_creds_btn" href="{{ txt_data_uri }}" download="{{ txt_filename }}" class="btn btn-secondary" style="width: auto; background-color: #10b981; color: #0f172a; font-weight: bold;">
+                📥 Descargar {{ txt_filename }}
+            </a>
+            <script>
+                (function() {
+                    setTimeout(function() {
+                        const btn = document.getElementById("auto_dl_creds_btn");
+                        if (btn) { btn.click(); }
+                    }, 400);
+                })();
+            </script>
+        </div>
+        {% endif %}
+
         {% if encrypted_file_url %}
         <div style="margin-bottom: 1.5rem;">
             <label class="form-label">Archivo Cifrado para Distribución:</label>
-            <a href="{{ encrypted_file_url }}" download class="btn btn-secondary" style="width: auto; margin-top: 0.25rem;">
-                📥 Descargar Archivo Cifrado (.enc)
+            <a href="{{ encrypted_file_url }}" download="{{ document.original_filename }}.enc" class="btn btn-secondary" style="width: auto; margin-top: 0.25rem;">
+                📥 Descargar Archivo Cifrado ({{ document.original_filename }}.enc)
             </a>
         </div>
         {% endif %}

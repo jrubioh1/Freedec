@@ -352,10 +352,70 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                     enc_name,
                 )
 
+            import urllib.parse
+            creds_text = (
+                "================================================================================\n"
+                "FREEDEC - CREDENCIALES DE RECUPERACIÓN Y CONTROL DE DOCUMENTO\n"
+                "================================================================================\n\n"
+                f"DOCUMENTO ORIGINAL:  {obj.original_filename}\n"
+                f"ARCHIVO CIFRADO:     {obj.original_filename}.enc\n"
+                f"HASH SHA-256:        {obj.file_hash}\n"
+                f"FECHA DE REGISTRO:   {obj.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if obj.created_at else ''}\n\n"
+                "--------------------------------------------------------------------------------\n"
+                "1. CÓDIGO SECRETO DE ACCESO (ZERO-KNOWLEDGE):\n"
+                "--------------------------------------------------------------------------------\n"
+                f"{raw_code}\n\n"
+                "* Entregue este código al destinatario autorizado a través de un canal seguro\n"
+                "  fuera de banda (Signal, SMS o en persona).\n\n"
+                "--------------------------------------------------------------------------------\n"
+                "2. CONTRASEÑA O CLAVE DE DESCIFRADO:\n"
+                "--------------------------------------------------------------------------------\n"
+                f"{raw_pwd or '(No definida)'}\n\n"
+                "* Esta clave descifra el archivo .enc y permite recuperar el archivo original.\n"
+                "  El sistema se la enviará automáticamente al destinatario cuando éste la\n"
+                "  solicite desde el portal público con su código de acceso.\n\n"
+                "--------------------------------------------------------------------------------\n"
+                "3. DESTINATARIOS AUTORIZADOS:\n"
+                "--------------------------------------------------------------------------------\n"
+                + "\n".join(f"- {e}" for e in (obj.allowed_emails or [])) + "\n\n"
+                "--------------------------------------------------------------------------------\n"
+                "4. PORTALES DE ACCESO:\n"
+                "--------------------------------------------------------------------------------\n"
+                "- Solicitar Contraseña:  http://127.0.0.1:8000/\n"
+                "- Descifrar Archivo:     http://127.0.0.1:8000/descifrar/\n"
+                "- Panel de Control:      http://127.0.0.1:8000/admin/\n"
+                "================================================================================\n"
+            )
+            txt_filename = f"{obj.original_filename}_credenciales.txt"
+            encoded_creds = urllib.parse.quote(creds_text)
+            txt_data_uri = f"data:text/plain;charset=utf-8,{encoded_creds}"
+
+            txt_download_html = format_html(
+                "<strong>📄 ARCHIVO DE CONTROL Y CREDENCIALES (.TXT):</strong><br>"
+                "<div style='margin: 8px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;'>"
+                "<a id='auto-dl-creds' href='{}' download='{}' class='button' style='background: #10b981; color: #0f172a; padding: 6px 14px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;'>"
+                "📄 Descargar Credenciales ({})"
+                "</a>"
+                "<span style='color: #94a3b8; font-size: 0.85rem;'>(Se ha iniciado la descarga automática del archivo .txt en tu navegador)</span>"
+                "</div>"
+                "<script>"
+                "(function() {{"
+                "    setTimeout(function() {{"
+                "        var el = document.getElementById('auto-dl-creds');"
+                "        if (el) {{ el.click(); }}"
+                "    }}, 400);"
+                "}})();"
+                "</script><br>",
+                mark_safe(txt_data_uri),
+                txt_filename,
+                txt_filename,
+            )
+
             messages.success(
                 request,
                 format_html(
                     "<strong>✅ Documento '{}' cifrado y registrado exitosamente (SHA-256: {})</strong><br><br>"
+                    "{}"
                     "{}"
                     "<strong>🔑 CÓDIGO SECRETO DE ACCESO (Zero-Knowledge):</strong><br>"
                     "<div style='font-size: 1.15rem; font-family: monospace; background: #0f172a; color: #fde68a; padding: 10px; border-radius: 6px; margin: 6px 0; border: 1px solid #f59e0b; user-select: all;'>"
@@ -365,6 +425,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                     "<em>⚠️ Guarde y entregue el código de acceso al destinatario por canal seguro (Signal, SMS o en persona). La contraseña le será enviada por correo cuando la solicite.</em>",
                     obj.original_filename,
                     obj.file_hash,
+                    txt_download_html,
                     download_html,
                     raw_code,
                     pwd_html,
