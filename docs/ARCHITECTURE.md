@@ -10,7 +10,7 @@
 <a id="seccion-espanol"></a>
 # 🇪🇸 Español
 
-Este documento describe la arquitectura interna, el flujo de datos criptográficos y los diagramas de secuencia y flujo para la aplicación **Freedec**.
+Este documento describe la arquitectura interna, el flujo de datos criptográficos DEK multi-usuario, el esquema dinámico de prueba de posesión por Enlace Mágico / OTP (15 min), la política destructiva **Burn-After-Read** y el acceso administrativo no destructivo (**Audit Bypass**) de **Freedec**.
 
 ---
 
@@ -22,22 +22,22 @@ Freedec implementa un patrón de **arquitectura orientada a servicios desacoplad
 ┌────────────────────────────────────────────────────────────────────────┐
 │               Capa de Entrada (Django Admin / DRF / Web GUI)           │
 │   - Django Admin (EncryptedDocumentAdmin - Auth Requerida / Gestión)   │
-│   - PublicPasswordRequestView / PublicRequestGuiView (Acceso Público)  │
-│   - PublicDecryptGuiView (Descifrado Web Público en Navegador)         │
+│   - PublicAccessRequestView / PublicRequestGuiView (Solicitud Acceso)  │
+│   - PublicConsumeView / PublicConsumeGuiView (Consumo Burn-After-Read) │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Capa de Validación (Forms & Serializers)           │
 │   - EncryptedDocumentAddForm / EncryptedDocumentChangeForm (Admin)     │
-│   - PublicPasswordRequestSerializer / PublicPasswordRequestForm        │
-│   - PublicDecryptForm                                                  │
+│   - PublicAccessRequestSerializer / PublicAccessRequestForm            │
+│   - PublicConsumeSerializer / PublicConsumeDocumentForm                │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Capa de Negocio (Services)                         │
-│   - DocumentManagementService: Orquesta flujos de negocio              │
+│   - DocumentManagementService: Orquesta flujos DEK, Magic Link y Burn  │
 │   - FernetCryptoService: Motor simétrico autenticado (AES-128-CBC+HMAC)│
 │   - calculate_file_sha256(): Motor streaming de hash en chunks (64KB)  │
 │   - validators.py: Inspección de Magic Bytes y Anti-Zip Bomb           │
@@ -47,15 +47,17 @@ Freedec implementa un patrón de **arquitectura orientada a servicios desacoplad
 ┌────────────────────────────────┐            ┌──────────────────────────┐
 │      Capa de Persistencia      │            │     Servicio Externo     │
 │   - EncryptedDocument (BD)     │            │   - django.core.mail     │
-│   - Disco (encrypted_docs/)    │            │     (Console / SMTP)     │
-└────────────────────────────────┘            └──────────────────────────┘
+│   - AccessVerificationToken(BD)│            │     (Console / SMTP)     │
+│   - DocumentAccessLog (BD)     │            │   - Enlace Mágico & OTP  │
+│   - Disco (.enc en MEDIA_ROOT) │            └──────────────────────────┘
+└────────────────────────────────┘
 ```
 
 ---
 
-## 2. Diagramas de Flujo
+## 2. Diagramas de Flujo Criptográficos
 
-### 2.1. Subida y Cifrado (Administrador en Django Admin)
+### 2.1. Subida y Cifrado DEK Multi-Usuario (Administrador)
 
 ```mermaid
 flowchart TD
@@ -63,47 +65,74 @@ flowchart TD
     B -- "No" --> C["Redirigir a Login de Django Admin"]
     B -- "Sí" --> D["Validar Formulario (EncryptedDocumentAddForm)"]
     D --> E{"¿Formato y Magic Bytes Válidos?"}
-    E -- "No" --> F["Retornar Error de Formato No Permitido"]
+    E -- "No" --> F["Retornar Error de Formato"]
     E -- "Sí" --> G["calculate_file_sha256: Streaming 64 KB"]
     G --> H{"¿Ya existe file_hash en BD?"}
     H -- "Sí" --> I["Retornar Error: Documento duplicado"]
-    H -- "No" --> J["FernetCryptoService: Cifrar archivo con AES-128-CBC + HMAC"]
-    J --> K["Guardar archivo cifrado en disco 'encrypted_docs/'"]
-    K --> L["secrets.token_urlsafe: Generar access_code 256 bits"]
-    L --> M["make_password: Generar hash PBKDF2 del access_code"]
-    M --> N["FernetCryptoService: Cifrar contraseña con Fernet"]
-    N --> O["Normalizar emails a minúsculas anti-CRLF"]
-    O --> P["Guardar EncryptedDocument en Base de Datos"]
-    P --> Q["Descarga automática de recibo .txt con credenciales"]
-    Q --> R(["Mostrar access_code y contraseña en pantalla de Django Admin"])
+    H -- "No" --> J["Fernet.generate_key: Generar DEK única"]
+    J --> K["Fernet(DEK): Cifrar contenido original una sola vez"]
+    K --> L["Guardar archivo cifrado .enc en disco"]
+    L --> M["Cifrar DEK con clave de servidor: admin_encrypted_dek"]
+    M --> N["Para cada email en allowed_emails:"]
+    N --> O["Generar user_secret aleatorio"]
+    O --> P["Cifrar DEK con user_secret"]
+    P --> Q["Cifrar user_secret con FREEDEC_FERNET_KEY de servidor"]
+    Q --> R["Almacenar sobre en doc.user_envelopes[email]"]
+    R --> S["Guardar EncryptedDocument en Base de Datos (is_consumed=False)"]
+    S --> T(["Documento listo para distribución segura (.enc)"])
 ```
 
 ---
 
-### 2.2. Verificación y Recuperación (Público)
+### 2.2. Solicitud de Acceso (Enlace Mágico & OTP - 15 Minutos)
 
 ```mermaid
 flowchart TD
-    A(["Inicio: Petición Pública GUI / API"]) --> B["Rate Limiting: Verificar Throttling"]
+    A(["Inicio: Petición Pública GUI / API con .enc y Email"]) --> B["Rate Limiting: Verificar Throttling"]
     B -- "Límite Excedido" --> C["Retornar HTTP 429 Too Many Requests"]
     B -- "OK" --> D["Validar Formulario / Serializador"]
     D --> E{"¿Formato Válido?"}
     E -- "No" --> F["Retornar Error"]
-    E -- "Sí" --> G["calculate_file_sha256: Calcular hash en memoria"]
-    G --> H{"¿Existe file_hash en BD?"}
+    E -- "Sí" --> G["Identificar documento por hash SHA-256"]
+    G --> H{"¿Existe Documento en BD?"}
     
-    H -- "No" --> I["Simular verificación con DUMMY_HASH para mitigar Timing Attack"]
-    I --> J["Registrar advertencia de seguridad en log"]
-    J --> K(["Retornar Mensaje Neutro de Seguridad"])
+    H -- "No" --> I["Mitigación OWASP A04: Registrar aviso"]
+    I --> J(["Retornar Mensaje Neutro Anti-Enumeración"])
     
-    H -- "Sí" --> L{"¿Coincide access_code vía check_password?"}
-    L -- "No" --> J
-    L -- "Sí" --> M{"¿Email solicitante está en allowed_emails?"}
-    M -- "No" --> J
-    M -- "Sí" --> N["FernetCryptoService: Descifrar contraseña interna"]
-    N --> O["django.core.mail: Enviar contraseña por correo"]
-    O --> P["Registrar auditoría de despacho exitoso"]
-    P --> K
+    H -- "Sí" --> K{"¿document.is_consumed == True?"}
+    K -- "Sí" --> L["Registrar action='intento_post_consumo'"]
+    L --> M["Enviar correo: '[Freedec] Archivo ya retirado' informando de consumed_by y consumed_at"]
+    M --> J
+    
+    K -- "No" --> N{"¿Email en allowed_emails?"}
+    N -- "No" --> I
+    N -- "Sí" --> O["secrets: Generar token url-safe (32 bytes) y OTP 6 dígitos"]
+    O --> P["Guardar AccessVerificationToken (hash SHA-256, expiración 15 min)"]
+    P --> Q["django.core.mail: Enviar correo con Magic Link y código OTP"]
+    Q --> R["Registrar auditoría action='solicitud_acceso'"]
+    R --> J
+```
+
+---
+
+### 2.3. Consumo, Descarga y Destrucción Física (Burn-After-Read)
+
+```mermaid
+flowchart TD
+    A(["Inicio: Consumir vía ?t=token o Formulario OTP"]) --> B["Validar AccessVerificationToken en BD"]
+    B --> C{"¿Token existe, no usado y no expirado?"}
+    C -- "No" --> D["Retornar HTTP 400: Token/OTP inválido o expirado"]
+    C -- "Sí" --> E{"¿document.is_consumed == True?"}
+    E -- "Sí" --> F["Retornar aviso: Documento ya retirado por consumed_by"]
+    E -- "No" --> G["Abrir sobre digital del usuario en doc.user_envelopes"]
+    G --> H["Descifrar user_secret con clave de servidor"]
+    H --> I["Descifrar DEK con user_secret"]
+    I --> J["Descifrar contenido del archivo original con DEK en memoria"]
+    J --> K["Marcar token: token.is_used = True"]
+    K --> L["DESTRUCCIÓN FÍSICA: document.encrypted_file.delete(save=False)"]
+    L --> M["Actualizar BD: is_consumed=True, consumed_by=email, consumed_at=now"]
+    M --> N["Registrar auditoría: action='descifrado_completado_burn'"]
+    N --> O(["Iniciar descarga del archivo descifrado al navegador"])
 ```
 
 ---
@@ -113,59 +142,67 @@ flowchart TD
 ### 3.1. `EncryptedDocument`
 | Campo | Tipo | Restricciones | Propósito de Seguridad |
 | :--- | :--- | :--- | :--- |
-| `original_filename` | `CharField(255)` | `default='documento'` | Preservación segura del nombre original para el archivo cifrado (.enc) y recuperación. |
-| `file_hash` | `CharField(64)` | `unique=True`, `db_index=True` | Identificador criptográfico SHA-256 del archivo original. |
-| `encrypted_file` | `FileField` | `upload_to='encrypted_docs/'` | Contenido binario cifrado en reposo con AES/Fernet (nombrado `<original_filename>.enc`). |
-| `access_code` | `CharField(128)` | Hash PBKDF2 | Almacenamiento Zero-Knowledge del código secreto. |
-| `encrypted_password`| `TextField` | Token base64 Fernet | Clave o contraseña cifrada con la clave maestra `FREEDEC_FERNET_KEY`. |
-| `allowed_emails` | `JSONField` | `default=list` | Lista blanca de correos normalizados en minúsculas. |
-| `access_count` | `PositiveIntegerField` | `default=0` | Contador de accesos y recuperaciones autorizadas. |
-| `last_accessed_at` | `DateTimeField` | `null=True`, `blank=True` | Fecha y hora del último acceso o descarga. |
-| `last_accessed_by` | `CharField(254)` | `blank=True` | Correo electrónico del último solicitante autorizado. |
-| `created_at` | `DateTimeField` | `auto_now_add=True` | Trazabilidad y auditoría temporal de registro. |
-| `updated_at` | `DateTimeField` | `auto_now=True` | Trazabilidad de modificaciones de registro. |
+| `original_filename` | `CharField(255)` | `default='documento'` | Preservación del nombre original para entrega al descifrar. |
+| `file_hash` | `CharField(64)` | `unique=True`, `db_index=True` | Huella digital SHA-256 del contenido original (anti-IDOR). |
+| `encrypted_file` | `FileField` | `upload_to='encrypted_docs/'` | Archivo binario `.enc` cifrado en reposo con la DEK. |
+| `encrypted_file_hash`| `CharField(64)` | `blank=True`, `db_index=True` | Hash SHA-256 del archivo cifrado `.enc` en reposo. |
+| `admin_encrypted_dek` | `TextField` | `blank=True` | DEK cifrada con la clave del servidor para descarga administrativa protegida. |
+| `user_envelopes` | `JSONField` | `default=dict` | Sobres digitales indexados por email (`encrypted_dek`, `encrypted_user_secret`). |
+| `allowed_emails` | `JSONField` | `default=list` | Lista blanca de correos autorizados a solicitar acceso. |
+| `is_consumed` | `BooleanField` | `default=False`, `db_index=True` | Estado del ciclo de vida (Burn-After-Read). |
+| `consumed_by` | `EmailField` | `null=True`, `blank=True` | Correo del usuario que realizó la descarga destructiva. |
+| `consumed_at` | `DateTimeField` | `null=True`, `blank=True` | Fecha y hora exacta de la destrucción del binario. |
+| `access_count` | `PositiveIntegerField` | `default=0` | Contador de accesos y recuperaciones. |
+| `last_accessed_at` | `DateTimeField` | `null=True`, `blank=True` | Fecha y hora del último acceso. |
+| `last_accessed_by` | `CharField(254)` | `blank=True` | Identificador del último usuario solicitante. |
+| `created_at` | `DateTimeField` | `auto_now_add=True` | Auditoría temporal de registro. |
+| `updated_at` | `DateTimeField` | `auto_now=True` | Trazabilidad de modificaciones. |
 
-### 3.2. `DocumentAccessLog` (Tabla de Auditoría)
+### 3.2. `AccessVerificationToken`
+| Campo | Tipo | Restricciones | Propósito de Seguridad |
+| :--- | :--- | :--- | :--- |
+| `document` | `ForeignKey(EncryptedDocument)` | `on_delete=CASCADE` | Vinculación estricta al documento solicitado. |
+| `email` | `EmailField` | `db_index=True` | Correo verificado del solicitante. |
+| `token_hash` | `CharField(128)` | SHA-256 | Hash del token plano (el token plano nunca se guarda en BD). |
+| `otp_code` | `CharField(6)` | 6 dígitos numéricos | Código alternativo para introducción manual. |
+| `created_at` | `DateTimeField` | `auto_now_add=True` | Fecha de emisión. |
+| `expires_at` | `DateTimeField` | 15 minutos | Caducidad estricta para mitigar ataques de replay. |
+| `is_used` | `BooleanField` | `default=False` | Bandera de uso único. |
+
+### 3.3. `DocumentAccessLog` (Tabla de Auditoría)
 | Campo | Tipo | Relación / Atributos | Propósito de Auditoría |
 | :--- | :--- | :--- | :--- |
-| `document` | `ForeignKey(EncryptedDocument)` | `on_delete=CASCADE` | Vinculación estricta al documento consultado. |
-| `timestamp` | `DateTimeField` | `auto_now_add=True`, `db_index=True` | Marca de tiempo exacta del intento o acceso. |
+| `document` | `ForeignKey(EncryptedDocument)` | `on_delete=CASCADE` | Documento consultado. |
+| `timestamp` | `DateTimeField` | `auto_now_add=True`, `db_index=True` | Marca de tiempo inmutable. |
 | `email` | `EmailField` | Normalizado en minúsculas | Dirección del solicitante. |
-| `action` | `CharField(64)` | `solicitud_clave`, `descifrado`, etc. | Tipo de evento o acción ejecutada. |
-| `ip_address` | `GenericIPAddressField` | `null=True`, `blank=True` | Dirección IP remota (compatible IPv4/IPv6 y proxies inversos). |
+| `action` | `CharField(64)` | Acciones auditadas | `solicitud_acceso`, `descifrado_completado_burn`, `intento_post_consumo`, `admin_inspeccion_preservada`, etc. |
+| `ip_address` | `GenericIPAddressField` | `null=True`, `blank=True` | Dirección IP remota (IPv4/IPv6 y proxies). |
+| `user_agent` | `TextField` | `null=True`, `blank=True` | Huella del navegador / cliente HTTP. |
 
 ---
 
-## 4. Ciclo de Vida y Eliminación Física Segura
+## 4. Acceso Administrativo Preservado (Audit Bypass)
 
-Para cumplir con el **Derecho al Olvido (RGPD / GDPR)** y prevenir archivos huérfanos confidenciales en disco:
-1. **Señal `post_delete`**: Conectada a `EncryptedDocument` en [`models.py`](file:///home/jorge/GitHubRepositories/Freedec/freedec/models.py). Cuando un registro se elimina desde el Admin de Django o el ORM, se elimina automáticamente el archivo físico (`.enc`) de `MEDIA_ROOT`.
-2. **Comando de Gestión CLI**: `python manage.py delete_document` permite listar o eliminar documentos específicos (o todos con `--all`) eliminando tanto el registro en BD como el archivo físico.
-3. **Botón en Django Admin**: La vista de lista en el panel administrativo incluye un botón directo `🗑️ Eliminar` por cada fila.
-
----
-
-## 5. Recibos de Credenciales y Portal de Descifrado
-
-1. **Recibo Descargable `.txt`**:
-   - Al registrar un documento en Django Admin, el navegador descarga automáticamente un archivo de texto plano (`<original_filename>_credenciales.txt`) que contiene el hash, el código de acceso, la contraseña asignada, los correos autorizados y los enlaces directos.
-   - Se genera en memoria mediante un `data:text/plain;charset=utf-8` Data URI sin almacenar ficheros en texto claro en el servidor.
-2. **Portal de Descifrado `/freedec/descifrar/`**:
-   - Permite al usuario final subir su archivo `.enc` y su contraseña recibida por correo para descargar en el acto el documento original descifrado.
+Para garantizar la supervisión y recuperación ante incidentes por personal administrativo autorizado:
+1. **Descarga Administrativa**: El staff autenticado en Django Admin dispone del botón **"🔓 Original (Admin)"**.
+2. **Descifrado con Clave Maestra de Servidor**: El backend utiliza `admin_encrypted_dek` y `FREEDEC_FERNET_KEY` para descifrar el binario sin requerir secretos de usuario ni enviar correos.
+3. **No Destructivo**: La descarga administrativa **NO elimina el archivo en disco** ni marca el documento como consumido.
+4. **Trazabilidad Obligatoria**: Se genera una entrada en `DocumentAccessLog` con `action="admin_inspeccion_preservada"`.
 
 ---
 
-## 6. Despliegue en Apache y Compatibilidad Multi-App
+## 5. Ciclo de Vida y Destrucción Física
 
-1. **Aislamiento bajo prefijo `freedec/`**: Todas las URLs de la aplicación cuelgan de `path('freedec/', include('freedec.urls', namespace='freedec'))` para evitar colisiones con otras aplicaciones en el mismo dominio o VirtualHost de Apache.
-2. **Resolución dinámica con `{% url %}` y `SCRIPT_NAME`**: Las plantillas HTML no tienen rutas absolutas fijadas a la raíz `/`, permitiendo que Apache monte la app en subdirectorios mediante `WSGIScriptAlias` o `ProxyPass`.
-3. **Panel de Administración Desacoplado**: Se utiliza `reverse('admin:index')` para resolver dinámicamente la URL del admin del proyecto anfitrión.
+1. **Burn-After-Read (Consumo por Usuario Final)**: Al completarse la descarga del documento original por parte de un usuario autorizado, se invoca `document.encrypted_file.delete(save=False)`.
+2. **Derecho al Olvido (RGPD / GDPR)**: Si un documento no consumido es eliminado por el administrador o mediante `python manage.py delete_document`, la señal `post_delete` elimina físicamente el fichero `.enc` de disco.
 
+---
+---
 
 <a id="section-english"></a>
 # 🇬🇧 English
 
-This document outlines the internal architecture, cryptographic data flow, and flowcharts for the **Freedec** application.
+This document details the internal architecture, multi-user DEK envelope cryptographic flow, dynamic proof-of-possession via Magic Link / OTP (15 min), **Burn-After-Read** destructive policy, and non-destructive administrative access (**Audit Bypass**) of **Freedec**.
 
 ---
 
@@ -177,22 +214,22 @@ Freedec implements a **decoupled service-oriented pattern** inside the Django / 
 ┌────────────────────────────────────────────────────────────────────────┐
 │               Ingress Layer (Django Admin / DRF / Web GUI)             │
 │   - Django Admin (EncryptedDocumentAdmin - Auth Required / Management) │
-│   - PublicPasswordRequestView / PublicRequestGuiView (Public Access)   │
-│   - PublicDecryptGuiView (Public In-Browser Decryption)                │
+│   - PublicAccessRequestView / PublicRequestGuiView (Access Request)    │
+│   - PublicConsumeView / PublicConsumeGuiView (Burn-After-Read Consume) │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Validation Layer (Forms & Serializers)             │
 │   - EncryptedDocumentAddForm / EncryptedDocumentChangeForm (Admin)     │
-│   - PublicPasswordRequestSerializer / PublicPasswordRequestForm        │
-│   - PublicDecryptForm                                                  │
+│   - PublicAccessRequestSerializer / PublicAccessRequestForm            │
+│   - PublicConsumeSerializer / PublicConsumeDocumentForm                │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                       Service Layer (Services)                         │
-│   - DocumentManagementService: Business workflow orchestrator          │
+│   - DocumentManagementService: Orchestrates DEK, Magic Link & Burn     │
 │   - FernetCryptoService: Authenticated symmetric cipher (AES-128-CBC)  │
 │   - calculate_file_sha256(): Memory-safe chunked hashing (64 KB)       │
 │   - validators.py: Deep Magic Byte inspection & Anti-Zip Bomb          │
@@ -202,15 +239,17 @@ Freedec implements a **decoupled service-oriented pattern** inside the Django / 
 ┌────────────────────────────────┐            ┌──────────────────────────┐
 │       Persistence Layer        │            │     External Service     │
 │   - EncryptedDocument (DB)     │            │   - django.core.mail     │
-│   - Disk (encrypted_docs/)     │            │     (Console / SMTP)     │
-└────────────────────────────────┘            └──────────────────────────┘
+│   - AccessVerificationToken(DB)│            │     (Console / SMTP)     │
+│   - DocumentAccessLog (DB)     │            │   - Magic Link & OTP     │
+│   - Disk (.enc in MEDIA_ROOT)  │            └──────────────────────────┘
+└────────────────────────────────┘
 ```
 
 ---
 
-## 2. Flowcharts
+## 2. Cryptographic Flowcharts
 
-### 2.1. Admin Upload and Encryption Flow (Django Admin)
+### 2.1. Admin Upload and Multi-User DEK Encryption
 
 ```mermaid
 flowchart TD
@@ -222,43 +261,70 @@ flowchart TD
     E -- "Yes" --> G["calculate_file_sha256: 64 KB Chunked Streaming"]
     G --> H{"Does file_hash exist in DB?"}
     H -- "Yes" --> I["Return Error: Duplicate document"]
-    H -- "No" --> J["FernetCryptoService: Encrypt file with AES-128-CBC + HMAC"]
-    J --> K["Save encrypted file to disk 'encrypted_docs/'"]
-    K --> L["secrets.token_urlsafe: Generate 256-bit access_code"]
-    L --> M["make_password: Generate PBKDF2 hash of access_code"]
-    M --> N["FernetCryptoService: Encrypt password with Fernet"]
-    N --> O["Normalize emails to lowercase anti-CRLF"]
-    O --> P["Persist EncryptedDocument to Database"]
-    P --> Q["Automatic browser download of .txt credentials receipt"]
-    Q --> R(["Display access_code and password in Django Admin"])
+    H -- "No" --> J["Fernet.generate_key: Generate unique DEK"]
+    J --> K["Fernet(DEK): Encrypt original content once"]
+    K --> L["Save encrypted .enc file to disk"]
+    L --> M["Encrypt DEK with server key: admin_encrypted_dek"]
+    M --> N["For each email in allowed_emails:"]
+    N --> O["Generate random user_secret"]
+    O --> P["Encrypt DEK with user_secret"]
+    P --> Q["Encrypt user_secret with server FREEDEC_FERNET_KEY"]
+    Q --> R["Store envelope in doc.user_envelopes[email]"]
+    R --> S["Persist EncryptedDocument to Database (is_consumed=False)"]
+    S --> T(["Document ready for secure distribution (.enc)"])
 ```
 
 ---
 
-### 2.2. Public Verification and Password Retrieval Flow
+### 2.2. Access Request Flow (Magic Link & 15-Minute OTP)
 
 ```mermaid
 flowchart TD
-    A(["Start: Public GUI / API Request"]) --> B["Rate Limiting: Check Throttling"]
+    A(["Start: Public GUI / API Request with .enc and Email"]) --> B["Rate Limiting: Check Throttling"]
     B -- "Exceeded" --> C["Return HTTP 429 Too Many Requests"]
     B -- "OK" --> D["Validate Form / Serializer"]
     D --> E{"Valid Format?"}
     E -- "No" --> F["Return Error"]
-    E -- "Yes" --> G["calculate_file_sha256: Compute runtime SHA-256"]
-    G --> H{"Does file_hash exist in DB?"}
+    E -- "Yes" --> G["Identify document by SHA-256 hash"]
+    G --> H{"Does Document exist in DB?"}
     
-    H -- "No" --> I["Simulate verification with DUMMY_HASH to mitigate Timing Attacks"]
-    I --> J["Log security audit warning"]
-    J --> K(["Return Neutral Safety Message"])
+    H -- "No" --> I["OWASP A04 Mitigation: Log warning"]
+    I --> J(["Return Neutral Anti-Enumeration Message"])
     
-    H -- "Yes" --> L{"Does access_code match via check_password?"}
-    L -- "No" --> J
-    L -- "Yes" --> M{"Is requester email in allowed_emails?"}
-    M -- "No" --> J
-    M -- "Yes" --> N["FernetCryptoService: Decrypt internal password"]
-    N --> O["django.core.mail: Send password to verified email"]
-    O --> P["Log successful dispatch audit"]
-    P --> K
+    H -- "Yes" --> K{"Is document.is_consumed == True?"}
+    K -- "Yes" --> L["Log action='intento_post_consumo'"]
+    L --> M["Send email: '[Freedec] Archivo ya retirado' indicating consumed_by and consumed_at"]
+    M --> J
+    
+    K -- "No" --> N{"Is email in allowed_emails?"}
+    N -- "No" --> I
+    N -- "Yes" --> O["secrets: Generate URL-safe token (32 bytes) & 6-digit OTP"]
+    O --> P["Save AccessVerificationToken (SHA-256 hash, 15-min expiry)"]
+    P --> Q["django.core.mail: Send email with Magic Link & OTP"]
+    Q --> R["Log audit action='solicitud_acceso'"]
+    R --> J
+```
+
+---
+
+### 2.3. Consumption, Decryption and Physical Destruction (Burn-After-Read)
+
+```mermaid
+flowchart TD
+    A(["Start: Consume via ?t=token or OTP Form"]) --> B["Validate AccessVerificationToken in DB"]
+    B --> C{"Token valid, unused & not expired?"}
+    C -- "No" --> D["Return HTTP 400: Invalid or expired Token/OTP"]
+    C -- "Yes" --> E{"Is document.is_consumed == True?"}
+    E -- "Yes" --> F["Return warning: Document already consumed by consumed_by"]
+    E -- "No" --> G["Open user digital envelope in doc.user_envelopes"]
+    G --> H["Decrypt user_secret with server key"]
+    H --> I["Decrypt DEK with user_secret"]
+    I --> J["Decrypt original file content with DEK in memory"]
+    J --> K["Mark token: token.is_used = True"]
+    K --> L["PHYSICAL DESTRUCTION: document.encrypted_file.delete(save=False)"]
+    L --> M["Update DB: is_consumed=True, consumed_by=email, consumed_at=now"]
+    M --> N["Log audit: action='descifrado_completado_burn'"]
+    N --> O(["Trigger browser download of decrypted original file"])
 ```
 
 ---
@@ -268,51 +334,48 @@ flowchart TD
 ### 3.1. `EncryptedDocument`
 | Field | Type | Constraints | Security Purpose |
 | :--- | :--- | :--- | :--- |
-| `original_filename` | `CharField(255)` | `default='documento'` | Safe preservation of the original file name for `.enc` distribution and recovery. |
-| `file_hash` | `CharField(64)` | `unique=True`, `db_index=True` | Cryptographic SHA-256 identifier of original unencrypted file. |
-| `encrypted_file` | `FileField` | `upload_to='encrypted_docs/'` | Binary content encrypted at rest with AES/Fernet (packaged as `<original_filename>.enc`). |
-| `access_code` | `CharField(128)` | PBKDF2 Hash | Zero-Knowledge storage of secret access code. |
-| `encrypted_password`| `TextField` | Fernet base64 token | Decryption key encrypted with `FREEDEC_FERNET_KEY`. |
-| `allowed_emails` | `JSONField` | `default=list` | Whitelist of normalized lowercase email addresses. |
-| `access_count` | `PositiveIntegerField` | `default=0` | Counter of authorized retrievals and decryptions. |
-| `last_accessed_at` | `DateTimeField` | `null=True`, `blank=True` | Timestamp of last access or download. |
-| `last_accessed_by` | `CharField(254)` | `blank=True` | Email of last authorized requester. |
-| `created_at` | `DateTimeField` | `auto_now_add=True` | Audit trail and temporal traceability. |
-| `updated_at` | `DateTimeField` | `auto_now=True` | Traceability of record modifications. |
+| `original_filename` | `CharField(255)` | `default='documento'` | Original file name preservation for download. |
+| `file_hash` | `CharField(64)` | `unique=True`, `db_index=True` | Cryptographic SHA-256 identifier of unencrypted content. |
+| `encrypted_file` | `FileField` | `upload_to='encrypted_docs/'` | Binary `.enc` file encrypted at rest with DEK. |
+| `encrypted_file_hash`| `CharField(64)` | `blank=True`, `db_index=True` | SHA-256 hash of the `.enc` file at rest. |
+| `admin_encrypted_dek` | `TextField` | `blank=True` | DEK encrypted with server key for preserved administrative download. |
+| `user_envelopes` | `JSONField` | `default=dict` | Digital envelopes indexed by email (`encrypted_dek`, `encrypted_user_secret`). |
+| `allowed_emails` | `JSONField` | `default=list` | Whitelist of authorized recipient emails. |
+| `is_consumed` | `BooleanField` | `default=False`, `db_index=True` | Lifecycle state (Burn-After-Read). |
+| `consumed_by` | `EmailField` | `null=True`, `blank=True` | Email of user who performed destructive consumption. |
+| `consumed_at` | `DateTimeField` | `null=True`, `blank=True` | Exact timestamp of file deletion. |
+| `access_count` | `PositiveIntegerField` | `default=0` | Total access / consumption counter. |
+| `last_accessed_at` | `DateTimeField` | `null=True`, `blank=True` | Timestamp of last access. |
+| `last_accessed_by` | `CharField(254)` | `blank=True` | Email of last requester. |
+| `created_at` | `DateTimeField` | `auto_now_add=True` | Temporal audit trail. |
+| `updated_at` | `DateTimeField` | `auto_now=True` | Modification traceability. |
 
-### 3.2. `DocumentAccessLog` (Audit Log Table)
+### 3.2. `AccessVerificationToken`
+| Field | Type | Constraints | Security Purpose |
+| :--- | :--- | :--- | :--- |
+| `document` | `ForeignKey(EncryptedDocument)` | `on_delete=CASCADE` | Foreign key relation to target document. |
+| `email` | `EmailField` | `db_index=True` | Authorized recipient email. |
+| `token_hash` | `CharField(128)` | SHA-256 | SHA-256 hash of plaintext token (raw token never stored). |
+| `otp_code` | `CharField(6)` | 6 numeric digits | Alternative one-time code for manual entry. |
+| `created_at` | `DateTimeField` | `auto_now_add=True` | Creation timestamp. |
+| `expires_at` | `DateTimeField` | 15 minutes | Strict expiration to prevent replay attacks. |
+| `is_used` | `BooleanField` | `default=False` | One-time usage flag. |
+
+### 3.3. `DocumentAccessLog`
 | Field | Type | Relation / Attributes | Audit Purpose |
 | :--- | :--- | :--- | :--- |
-| `document` | `ForeignKey(EncryptedDocument)` | `on_delete=CASCADE` | Direct foreign key relation to queried document. |
-| `timestamp` | `DateTimeField` | `auto_now_add=True`, `db_index=True` | Exact timestamp of retrieval attempt or access. |
+| `document` | `ForeignKey(EncryptedDocument)` | `on_delete=CASCADE` | Target document. |
+| `timestamp` | `DateTimeField` | `auto_now_add=True`, `db_index=True` | Immutable event timestamp. |
 | `email` | `EmailField` | Normalized lowercase | Requester email address. |
-| `action` | `CharField(64)` | `solicitud_clave`, `descifrado`, etc. | Action type performed. |
-| `ip_address` | `GenericIPAddressField` | `null=True`, `blank=True` | Remote IP address (IPv4/IPv6 and reverse-proxy compatible). |
+| `action` | `CharField(64)` | Event actions | `solicitud_acceso`, `descifrado_completado_burn`, `intento_post_consumo`, `admin_inspeccion_preservada`, etc. |
+| `ip_address` | `GenericIPAddressField` | `null=True`, `blank=True` | Remote IP address (IPv4/IPv6 and reverse proxies). |
+| `user_agent` | `TextField` | `null=True`, `blank=True` | Browser / HTTP client fingerprint. |
 
 ---
 
-## 4. Lifecycle & Secure Physical File Erasure
+## 4. Preserved Administrative Access (Audit Bypass)
 
-To adhere to the **Right to Erasure (GDPR)** and prevent orphaned confidential files on disk:
-1. **`post_delete` Signal**: Attached to `EncryptedDocument` in [`models.py`](file:///home/jorge/GitHubRepositories/Freedec/freedec/models.py). When a record is deleted from Django Admin or ORM, the physical `.enc` file in `MEDIA_ROOT` is automatically deleted from disk.
-2. **CLI Management Command**: `python manage.py delete_document` provides `--list`, `--all`, or target name/hash deletion for complete database and physical unlinking.
-3. **Django Admin Button**: A direct `🗑️ Eliminar` button is provided in each table row in Django Admin.
-
----
-
-## 5. Credential Receipts & Decryption Portal
-
-1. **Downloadable `.txt` Credentials Receipt**:
-   - On document registration in Django Admin, the browser automatically downloads `<original_filename>_credenciales.txt` containing the file hash, access code, password, authorized emails, and direct portal links.
-   - Generated client-side using `data:text/plain;charset=utf-8` Data URIs without storing plaintext credentials on the server.
-2. **Decryption Portal `/freedec/descifrar/`**:
-   - Allows users to upload their `.enc` file and enter their emailed password to instantly download the decrypted original document.
-
----
-
-## 6. Apache Deployment & Multi-App Compatibility
-
-1. **Isolation under `freedec/` prefix**: All application endpoints are mounted under `path('freedec/', include('freedec.urls', namespace='freedec'))` avoiding route clashes with other applications on the same Apache domain or VirtualHost.
-2. **Dynamic resolution with `{% url %}` and `SCRIPT_NAME`**: Templates avoid hardcoded root paths, allowing Apache to host the app in any subfolder via `WSGIScriptAlias` or `ProxyPass`.
-3. **Decoupled Admin Integration**: Uses `reverse('admin:index')` to dynamically link to the host project's Django admin site.
-
+1. **Staff Admin Download**: Authenticated staff in Django Admin can click **"🔓 Original (Admin)"**.
+2. **Server Key Decryption**: The backend uses `admin_encrypted_dek` and `FREEDEC_FERNET_KEY` to decrypt the original binary without needing user secrets.
+3. **Non-Destructive**: Administrative downloads **do not delete the file** and do not set `is_consumed = True`.
+4. **Mandatory Audit Logging**: An event with `action="admin_inspeccion_preservada"` is recorded in `DocumentAccessLog`.

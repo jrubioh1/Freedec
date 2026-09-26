@@ -35,11 +35,12 @@ def set_language_view(request):
     return response
 
 from freedec.forms import (
+    PublicAccessRequestForm,
+    PublicConsumeDocumentForm,
     PublicDecryptDocumentForm,
     PublicPasswordRequestForm,
 )
 from freedec.services import DocumentManagementService
-
 
 
 def get_client_ip(request):
@@ -52,69 +53,96 @@ def get_client_ip(request):
 
 class PublicRequestGuiView(View):
     """
-    Vista Web GUI pública para que los destinatarios suban su copia del archivo,
-    ingresen su access_code y su correo electrónico para recibir la clave descifrada.
+    Vista Web GUI pública para que los destinatarios suban su copia del archivo .enc
+    e introduzcan su correo electrónico para recibir el enlace mágico y código OTP temporal.
     """
 
     template_name = "freedec/public_request.html"
 
     def get(self, request):
-        form = PublicPasswordRequestForm()
+        form = PublicAccessRequestForm()
         return render(request, self.template_name, {"form": form})
 
     def post(self, request):
-        form = PublicPasswordRequestForm(request.POST, request.FILES)
+        form = PublicAccessRequestForm(request.POST, request.FILES)
         if not form.is_valid():
             return render(request, self.template_name, {"form": form}, status=400)
 
         uploaded_file = form.cleaned_data["file"]
-        access_code = form.cleaned_data["access_code"]
         email = form.cleaned_data["email"]
 
         service = DocumentManagementService()
-        decrypt_url = request.build_absolute_uri(reverse("freedec:gui-public-decrypt"))
-        success, message = service.verify_and_dispatch_password(
+        base_url = request.build_absolute_uri("/").rstrip("/")
+        success, message = service.request_document_access(
             uploaded_file=uploaded_file,
-            access_code=access_code,
             recipient_email=email,
             client_ip=get_client_ip(request),
-            decrypt_url=decrypt_url,
+            user_agent=request.META.get("HTTP_USER_AGENT"),
+            base_url=base_url,
         )
 
         context = {
-            "form": PublicPasswordRequestForm(),  # Reset form
+            "form": PublicAccessRequestForm(),  # Reset form
             "result_message": message,
             "is_success": success,
         }
         return render(request, self.template_name, context, status=200 if success else 500)
 
 
-class PublicDecryptGuiView(View):
+class PublicConsumeGuiView(View):
     """
-    Vista Web GUI pública para que los destinatarios descifren y descarguen el documento original
-    subiendo el archivo .enc y proporcionando la contraseña recibida por correo.
+    Vista Web GUI pública para descifrar y consumir el documento original mediante
+    el enlace mágico recibido por correo (?t=...) o mediante código OTP de 6 dígitos.
+    Aplica la política destructiva Burn-after-read: el archivo en disco se elimina al instante.
     """
 
     template_name = "freedec/public_decrypt.html"
 
     def get(self, request):
-        form = PublicDecryptDocumentForm()
+        raw_token = request.GET.get("t")
+        if raw_token:
+            # Consumo directo mediante enlace mágico
+            service = DocumentManagementService()
+            success, decrypted_bytes, suggested_filename, mimetype, message = (
+                service.consume_and_burn_document(
+                    token_str=raw_token,
+                    client_ip=get_client_ip(request),
+                    user_agent=request.META.get("HTTP_USER_AGENT"),
+                )
+            )
+            if success:
+                response = HttpResponse(decrypted_bytes, content_type=mimetype or "application/octet-stream")
+                response["Content-Disposition"] = f'attachment; filename="{suggested_filename}"'
+                return response
+            else:
+                form = PublicConsumeDocumentForm()
+                return render(
+                    request,
+                    self.template_name,
+                    {"form": form, "error_message": message},
+                    status=400,
+                )
+
+        form = PublicConsumeDocumentForm()
         return render(request, self.template_name, {"form": form})
 
     def post(self, request):
-        form = PublicDecryptDocumentForm(request.POST, request.FILES)
+        form = PublicConsumeDocumentForm(request.POST)
         if not form.is_valid():
             return render(request, self.template_name, {"form": form}, status=400)
 
-        uploaded_file = form.cleaned_data["file"]
-        password = form.cleaned_data["password"]
+        token_str = form.cleaned_data.get("token") or request.GET.get("t")
+        otp_code = form.cleaned_data.get("otp_code")
+        email = form.cleaned_data.get("email")
 
         service = DocumentManagementService()
         success, decrypted_bytes, suggested_filename, mimetype, message = (
-            service.decrypt_document_with_password(
-                encrypted_file_obj=uploaded_file,
-                password=password,
+            service.consume_and_burn_document(
+                token_str=token_str,
+                otp_code=otp_code,
+                email=email,
                 client_ip=get_client_ip(request),
+                user_agent=request.META.get("HTTP_USER_AGENT"),
             )
         )
 
@@ -126,7 +154,15 @@ class PublicDecryptGuiView(View):
                 status=400,
             )
 
-        # Entrega de descarga segura con tipo MIME adecuado y Content-Disposition
         response = HttpResponse(decrypted_bytes, content_type=mimetype or "application/octet-stream")
         response["Content-Disposition"] = f'attachment; filename="{suggested_filename}"'
         return response
+
+
+def consume_document_view(request):
+    """Función de vista para consumo y destrucción directa (Requisito 4)."""
+    return PublicConsumeGuiView.as_view()(request)
+
+
+# Alias de compatibilidad
+PublicDecryptGuiView = PublicConsumeGuiView

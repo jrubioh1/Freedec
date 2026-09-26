@@ -342,9 +342,8 @@
                 <div class="brand-icon">F</div>
                 <span>Freedec</span>
             </a>
-            <div class="nav-links">
-                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">🔑 {% trans "Solicitar Contraseña" %}</a>
-                <a href="{% url 'freedec:gui-public-decrypt' %}" class="nav-link">🔓 {% trans "Descifrar Archivo (.enc)" %}</a>
+                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">🔑 {% trans "Solicitar Acceso" %}</a>
+                <a href="{% url 'freedec:gui-consume' %}" class="nav-link">📥 {% trans "Consumir Documento" %}</a>
                 <div class="lang-switcher" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.05); padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border-color); margin-left: 0.5rem;">
                     <a href="{% url 'freedec:set-language' %}?lang=es&next={{ request.get_full_path|urlencode }}" 
                        class="lang-link" 

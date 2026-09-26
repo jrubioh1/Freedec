@@ -8,28 +8,16 @@ from freedec.validators import validate_document_file, validate_safe_email
 DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024
 
 
-class PublicPasswordRequestForm(forms.Form):
+class PublicAccessRequestForm(forms.Form):
     """
-    Formulario web para la interfaz gráfica pública.
-    El usuario final sube su copia del archivo, el access_code y su correo electrónico.
+    Formulario web para la solicitud pública de acceso mediante Enlace Mágico / OTP.
+    El usuario final sube el archivo cifrado (.enc) y proporciona su correo electrónico.
     """
 
     file = forms.FileField(
-        label=_("Documento"),
-        help_text=_("Seleccione el archivo que desea consultar."),
+        label=_("Archivo Cifrado (.enc)"),
+        help_text=_("Seleccione el archivo cifrado (.enc) que desea abrir."),
         widget=forms.FileInput(attrs={"class": "form-file-input", "id": "public_file"}),
-    )
-    access_code = forms.CharField(
-        label=_("Código de Acceso"),
-        widget=forms.TextInput(
-            attrs={
-                "class": "form-control font-mono",
-                "placeholder": _("Introduzca su código de acceso..."),
-                "id": "access_code",
-                "autocomplete": "off",
-            }
-        ),
-        help_text=_("Código facilitado por el emisor del documento."),
     )
     email = forms.CharField(
         label=_("Correo Electrónico"),
@@ -40,7 +28,7 @@ class PublicPasswordRequestForm(forms.Form):
                 "id": "email",
             }
         ),
-        help_text=_("Dirección de correo donde se enviará la contraseña."),
+        help_text=_("Dirección autorizada a la que se enviará el enlace de acceso directo y código OTP."),
     )
 
     def clean_file(self):
@@ -56,57 +44,67 @@ class PublicPasswordRequestForm(forms.Form):
                 % {"max_size": max_mb}
             )
 
-        name_lower = (file_obj.name or "").lower()
-        if name_lower.endswith(".enc"):
-            return file_obj
-
-        return validate_document_file(file_obj)
+        return file_obj
 
     def clean_email(self):
         raw_email = self.cleaned_data.get("email", "")
         return validate_safe_email(raw_email)
 
 
-class PublicDecryptDocumentForm(forms.Form):
+class PublicConsumeDocumentForm(forms.Form):
     """
-    Formulario público para descifrar un archivo .enc proporcionando la contraseña
-    recibida por correo electrónico.
+    Formulario para descifrar y consumir el documento mediante token URL o código OTP de 6 dígitos.
     """
 
-    file = forms.FileField(
-        label=_("Archivo Cifrado (.enc)"),
-        help_text=_("Seleccione el archivo con extensión .enc que desea descifrar."),
-        widget=forms.FileInput(attrs={"class": "form-file-input", "id": "enc_file"}),
+    token = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(attrs={"id": "consume_token"}),
     )
-    password = forms.CharField(
-        label=_("Contraseña de Descifrado"),
-        widget=forms.PasswordInput(
+    otp_code = forms.CharField(
+        label=_("Código OTP (6 dígitos)"),
+        required=False,
+        max_length=6,
+        widget=forms.TextInput(
             attrs={
-                "class": "form-control font-mono",
-                "placeholder": _("Pegue la contraseña recibida por correo..."),
-                "id": "decrypt_password",
-                "autocomplete": "off",
+                "class": "form-control font-mono text-center",
+                "placeholder": "123456",
+                "id": "otp_code",
+                "maxlength": "6",
+                "autocomplete": "one-time-code",
             }
         ),
-        help_text=_("Contraseña que le fue remitida a su correo electrónico tras la verificación."),
+        help_text=_("Introduzca el código OTP de 6 dígitos recibido por correo."),
+    )
+    email = forms.CharField(
+        label=_("Correo Electrónico"),
+        required=False,
+        widget=forms.EmailInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": _("su-correo@ejemplo.com"),
+                "id": "consume_email",
+            }
+        ),
+        help_text=_("Requerido únicamente si utiliza código OTP manual."),
     )
 
-    def clean_file(self):
-        file_obj = self.cleaned_data.get("file")
-        if not file_obj:
-            raise ValidationError(_("Debe proporcionar un archivo."))
+    def clean(self):
+        cleaned_data = super().clean()
+        token = cleaned_data.get("token")
+        otp_code = cleaned_data.get("otp_code")
 
-        max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
-        if file_obj.size > max_size:
-            max_mb = max_size // (1024 * 1024)
-            raise ValidationError(
-                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
-                % {"max_size": max_mb}
-            )
-        return file_obj
+        if not token and not otp_code:
+            raise ValidationError(_("Debe proporcionar el token de acceso o el código OTP."))
 
-    def clean_password(self):
-        pwd = self.cleaned_data.get("password", "")
-        if not pwd or not pwd.strip():
-            raise ValidationError(_("Debe introducir la contraseña de descifrado."))
-        return pwd.strip()
+        if otp_code and not token:
+            email = cleaned_data.get("email")
+            if not email:
+                raise ValidationError(_("Debe indicar su correo electrónico para validar el código OTP."))
+            cleaned_data["email"] = validate_safe_email(email)
+
+        return cleaned_data
+
+
+# Alias de compatibilidad
+PublicPasswordRequestForm = PublicAccessRequestForm
+PublicDecryptDocumentForm = PublicConsumeDocumentForm

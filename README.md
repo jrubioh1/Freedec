@@ -1,9 +1,9 @@
-# Freedec: Secure Document & Password Recovery Service
+# Freedec: Secure Document & Cryptographic Recovery Service
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](https://python.org)
 [![Django](https://img.shields.io/badge/Django-5.1-green.svg)](https://djangoproject.com)
 [![DRF](https://img.shields.io/badge/DRF-3.15-red.svg)](https://www.django-rest-framework.org)
-[![Security](https://img.shields.io/badge/Cryptography-Fernet%20%2B%20SHA--256-orange.svg)](https://cryptography.io)
+[![Security](https://img.shields.io/badge/Cryptography-DEK%20Envelopes%20%2B%20Fernet%20%2B%20SHA--256-orange.svg)](https://cryptography.io)
 [![OWASP](https://img.shields.io/badge/OWASP%20Top%2010-Compliant-brightgreen.svg)](https://owasp.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -36,37 +36,35 @@ Bienvenido a la documentación oficial de **Freedec**.
 
 ## 1. ¿Qué es Freedec y qué problema resuelve?
 
-Imagina que necesitas compartir un documento altamente confidencial (un contrato, una auditoría, unas credenciales maestras) con una lista específica de personas. Si envías el archivo y la contraseña por el mismo canal (por ejemplo, en el mismo correo o chat), cualquier persona que intercepte la comunicación tendrá acceso total.
+Compartir documentos de alta confidencialidad (contratos, auditorías, informes forenses) mediante contraseñas estáticas compartidas o canales tradicionales expone la información a filtraciones, ataques de fuerza bruta y permanencia innecesaria de archivos en los servidores.
 
-**Freedec resuelve esto mediante una arquitectura descentralizada de conocimiento cero (Zero-Knowledge) y verificación multi-factor:**
+**Freedec resuelve esto mediante una arquitectura criptográfica DEK multi-usuario, autorización dinámica por Enlace Mágico / OTP temporal y destrucción física irreversible al primer consumo (Burn-After-Read):**
 
-1. **El Administrador sube el documento**:
-   * El sistema calcula la **huella digital exacta del archivo (hash SHA-256)**. No se usan IDs secuenciales (como `documento/1`), lo que impide que atacantes adivinen URLs (anti-IDOR).
-   * El archivo se cifra inmediatamente con **AES-128-CBC + HMAC-SHA256 (Fernet)** y se guarda protegido en disco.
-   * Se genera un **Código Secreto de Acceso (`access_code`)** de 256 bits. El administrador recibe este código una sola vez para entregarlo en mano o por chat seguro (Signal/SMS). En la base de datos se guarda **hasheado** con PBKDF2 (incluso si roban la base de datos, nadie puede ver el código).
-2. **El Destinatario recupera la clave**:
-   * El usuario sube su copia del documento a la web de Freedec.
-   * Introduce el `access_code` y su correo electrónico.
-   * El sistema calcula el hash en tiempo real, verifica que posea el archivo original, comprueba el código y confirma que su correo esté en la lista blanca autorizada.
-   * **La clave NUNCA se muestra en pantalla**: se envía de forma automatizada y exclusiva al buzón del correo verificado.
+1. **Arquitectura Criptográfica DEK Multi-Usuario con Sobres Digitales (`user_envelopes`)**:
+   * Al registrar un documento, el sistema genera una **Clave Maestra de Datos simétrica única (DEK)** usando `Fernet.generate_key()`.
+   * El archivo original se cifra **una sola vez** con esta DEK y se almacena en disco con extensión `.enc`.
+   * Para cada correo autorizado en `allowed_emails`, se genera un secreto individual (`user_secret`), se cifra la DEK con este secreto y se protege el secreto con la clave de servidor (`settings.FREEDEC_FERNET_KEY`).
+   * No existen contraseñas estáticas globales compartidas.
+2. **Autorización Dinámica y Prueba de Posesión en Tiempo Real**:
+   * El destinatario solicita el acceso subiendo su copia del archivo `.enc` e indicando su correo electrónico.
+   * El sistema genera un token de un solo uso de alta entropía (`secrets.token_urlsafe(32)`) y un código OTP numérico de 6 dígitos con **expiración estricta a 15 minutos**.
+   * En la base de datos **solo se almacena el hash SHA-256 del token** (Zero-Knowledge).
+   * El enlace directo (`https://dominio/freedec/consumir/?t={token}`) y el código OTP se envían de forma exclusiva a la bandeja de entrada del usuario verificado.
+3. **Descifrado al Vuelo y Destrucción Física (Burn-After-Read)**:
+   * Al hacer clic en el Enlace Mágico o ingresar el OTP, el sistema abre el sobre digital del usuario, recupera la DEK y entrega el archivo original descifrado.
+   * **Destrucción Física Inmediata**: El archivo cifrado `.enc` en disco se **elimina de forma física e irreversible** (`document.encrypted_file.delete(save=False)`).
+   * El registro en base de datos se marca `is_consumed = True`, guardando `consumed_by` y `consumed_at`.
+4. **Gestión de Accesos Posteriores**:
+   * Si otro usuario autorizado intenta solicitar o descifrar un documento ya consumido, el sistema no produce errores 500 ni fuga datos. En su lugar, le envía automáticamente un correo informando: *"El documento ya fue retirado por {consumed_by} el {consumed_at}. Solicite una copia directamente a esa dirección."*
+5. **Acceso Administrativo Preservado (Audit Bypass)**:
+   * El personal administrativo autorizado en Django Admin puede descargar una copia original descifrada para fines de auditoría o contingencia usando la clave de servidor **sin destruir el archivo en disco ni marcarlo como consumido**, registrando el evento como `admin_inspeccion_preservada`.
 
 ---
 
 ## 2. Requisitos Previos del Sistema
 
-Antes de empezar, comprueba que tienes instaladas estas herramientas en tu ordenador o servidor:
-
-* **Python 3.11 o 3.12**:
-  Comprueba con:
-  ```bash
-  python3 --version
-  ```
+* **Python 3.11 o 3.12** (`python3 --version`).
 * **Poetry (Gestor moderno de dependencias en Python)**:
-  Comprueba con:
-  ```bash
-  poetry --version
-  ```
-  *Si no tienes Poetry instalado, instálalo en Linux/macOS con:*
   ```bash
   curl -sSL https://install.python-poetry.org | python3 -
   ```
@@ -75,7 +73,7 @@ Antes de empezar, comprueba que tienes instaladas estas herramientas en tu orden
 
 ## 3. Entorno de Pruebas Rápido (Staging Sandbox)
 
-El repositorio incluye un servidor de prueba autónomo preconfigurado. **No necesitas tener ningún proyecto Django previo para probarlo.**
+El repositorio incluye un entorno de prueba autónomo preconfigurado listo para funcionar.
 
 ### Paso 1: Clonar e Instalar Dependencias
 ```bash
@@ -85,11 +83,10 @@ poetry install
 ```
 
 ### Paso 2: Inicializar la Base de Datos de Prueba
-Ejecuta el comando automatizado:
 ```bash
 poetry run python manage.py setup_staging
 ```
-*Creará una base de datos SQLite local (`db_staging.sqlite3`), creará el usuario administrador `admin` con contraseña `admin123` y generará un archivo de prueba legítimo `sample_document.pdf`.*
+*Crea la base de datos local SQLite, el usuario administrador `admin` con contraseña `admin123` y el archivo de prueba `sample_document.pdf`.*
 
 ### Paso 3: Arrancar el Servidor
 ```bash
@@ -97,14 +94,9 @@ poetry run python manage.py runserver 8000
 ```
 
 ### Paso 4: Probar la Interfaz Gráfica en tu Navegador
-* **Portal Público de Recuperación**: Abre [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) en tu navegador.
-* **Portal Público de Descifrado (.enc)**: Abre [http://127.0.0.1:8000/freedec/descifrar/](http://127.0.0.1:8000/freedec/descifrar/) en tu navegador.
-* **Panel de Administrador (Django Admin)**: Inicia sesión en [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (usuario `admin`, contraseña `admin123`) para cifrar y registrar documentos desde el menú **Documentos Cifrados -> Añadir**.
-
-> [!TIP]
-> **Configuración en claro y Presetting de Pruebas**: El proyecto funciona directamente sin necesidad de archivo `.env`.
-> - `config/settings.py`: Define el **setting genérico** en claro (sin dependencias de `.env` ni credenciales privadas).
-> - `config/presettings.py`: Contiene el presetting para pruebas locales con base de datos de staging y servidor SMTP real (**Ethereal Email**), permitiendo inspeccionar los correos de despacho en tiempo real en [https://ethereal.email/messages](https://ethereal.email/messages) ejecutando `python manage.py runserver --settings=config.presettings`.
+* **Portal de Solicitud de Acceso**: [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/)
+* **Portal de Consumo y Descarga (Burn-After-Read)**: [http://127.0.0.1:8000/freedec/consumir/](http://127.0.0.1:8000/freedec/consumir/)
+* **Panel de Administrador (Django Admin)**: Inicia sesión en [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (usuario `admin`, contraseña `admin123`) para registrar y cifrar documentos desde **Documentos Cifrados -> Añadir**.
 
 ### Paso 5: Probar el Flujo Automatizado por CLI (Opcional)
 En otra terminal distinta, ejecuta:
@@ -118,81 +110,41 @@ poetry run python scripts/demo_flow.py
 
 Si ya tienes un proyecto Django funcionando, puedes incorporar `freedec` de cualquiera de estas 4 maneras:
 
-### Opción 1: Copiar la carpeta `freedec/` a tu proyecto (La más sencilla y directa)
+### Opción 1: Copiar la carpeta `freedec/` a tu proyecto (La más directa)
 * **¿Qué se copia?**: **ÚNICAMENTE la carpeta `freedec/`**.
 * **¿Qué NO se copia?**: **NO copies `config/` ni `manage.py`** (tu proyecto ya tiene los suyos propios).
-* **Comando para instalar dependencias**:
-  En la carpeta de tu proyecto existente:
+* **Dependencias**:
   ```bash
   poetry add cryptography djangorestframework
   ```
 
-#### Comparativa visual de directorios:
-```text
-Tu Proyecto ANTES de copiar:             Tu Proyecto DESPUÉS de copiar:
-----------------------------             ------------------------------
-mi_proyecto/                             mi_proyecto/
-├── manage.py                            ├── manage.py
-├── mi_config/                           ├── mi_config/
-│   ├── settings.py                      │   ├── settings.py  <-- Añadir 4 líneas
-│   ├── urls.py                          │   ├── urls.py      <-- Añadir 1 línea
-│   └── wsgi.py                          │   └── wsgi.py
-                                         └── freedec/         <-- ¡Solo pegas esto!
-                                             ├── models.py
-                                             ├── views.py
-                                             ├── templates/
-                                             └── ...
-```
-
----
-
-### Opción 2: Como dependencia Git con Poetry (Ideal para repositorios en equipo)
-Si Freedec está en un repositorio Git remoto (GitHub, GitLab):
+### Opción 2: Como dependencia Git con Poetry
 ```bash
 poetry add git+https://github.com/jrubioh1/Freedec.git
 ```
-*Poetry clonará y gestionará las actualizaciones de Freedec como cualquier paquete estándar.*
 
----
-
-### Opción 3: Enlace local editable con Poetry (Monorepos o Desarrollo Activo)
-Si tienes el repositorio de Freedec descargado en tu misma máquina:
+### Opción 3: Como submódulo Git
 ```bash
-poetry add --editable /ruta/absoluta/a/Freedec
+git submodule add https://github.com/jrubioh1/Freedec.git apps/freedec
 ```
-*Cualquier cambio que hagas en el código de Freedec se reflejará al instante en tu proyecto principal.*
 
----
-
-### Opción 4: Como paquete de PyPI o Registro Privado
-Si compilas y publicas Freedec:
+### Opción 4: Como paquete editable local
 ```bash
-# En el repositorio Freedec:
-poetry build
-poetry publish
-
-# En tu proyecto principal:
-poetry add freedec
+poetry add --editable /ruta/a/Freedec/
 ```
 
 ---
 
 ## 5. Guía Paso a Paso de Integración (Línea por Línea)
 
-Sigue estos 6 pasos numerados en tu proyecto Django existente:
-
-### Paso 1: Generar la Clave Criptográfica Maestra
-Abre tu terminal y ejecuta:
+### Paso 1: Generar la Clave Maestra del Servidor (`FREEDEC_FERNET_KEY`)
+Ejecuta en tu terminal:
 ```bash
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
-Obtendrás una cadena de 44 caracteres base64 similar a:
-`2bXoO5W3uK_mZ6k9wE2qR7vA1yT8pI0uL4mN6jH3gD1=`
 
----
-
-### Paso 2: Editar tu archivo `settings.py`
-Abre el archivo `settings.py` de tu proyecto y añade lo siguiente:
+### Paso 2: Configurar tu `settings.py`
+Añade las siguientes configuraciones en tu proyecto:
 
 ```python
 import os
@@ -208,41 +160,36 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # Aplicaciones requeridas:
+    # Freedec y dependencias:
     'rest_framework',
     'freedec.apps.FreedecConfig',
 ]
 
-# 2. Configurar la clave maestra que generaste en el Paso 1
-# (En producción se recomienda inyectarla desde os.environ)
+# 2. Clave maestra Fernet del servidor (Reversible solo para el backend y staff autorizado)
 FREEDEC_FERNET_KEY = os.environ.get(
     "FREEDEC_FERNET_KEY",
     "Pega_Aqui_La_Clave_Generada_En_El_Paso_1=="
 )
 
-# 3. Tamaño máximo de archivo permitido (50 MB por defecto)
+# 3. Tamaño máximo de archivo (50 MB por defecto)
 FREEDEC_MAX_FILE_SIZE = 50 * 1024 * 1024
 
-# 4. Configurar las rutas de archivos MEDIA (si no las tenías)
+# 4. Configurar almacenamiento MEDIA
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# 5. Configurar el correo (Usa tu SMTP habitual en producción)
+# 5. Configurar correo electrónico (SMTP en producción)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 DEFAULT_FROM_EMAIL = 'no-reply@tudominio.com'
 
-# 6. Throttling de seguridad en DRF (protege el endpoint público)
+# 6. Throttling de seguridad en DRF
 REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.AnonRateThrottle'],
-    'DEFAULT_THROTTLE_RATES': {'anon': '5/minute'},
+    'DEFAULT_THROTTLE_RATES': {'anon': '10/minute'},
 }
 ```
 
----
-
 ### Paso 3: Editar tu archivo `urls.py` principal
-Abre el archivo `urls.py` de la carpeta de configuración de tu proyecto y añade el `include`:
-
 ```python
 from django.contrib import admin
 from django.urls import path, include
@@ -251,132 +198,106 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    
-    # Acoplar las rutas de Freedec (GUI y API REST)
     path('freedec/', include('freedec.urls', namespace='freedec')),
 ]
 
-# Servir archivos multimedia únicamente durante desarrollo local:
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 ```
 
----
-
-### Paso 4: Ejecutar las Migraciones
-Ejecuta en tu terminal para crear las tablas en tu base de datos:
+### Paso 4: Ejecutar Migraciones
 ```bash
-poetry run python manage.py makemigrations freedec
 poetry run python manage.py migrate
 ```
 
 ---
 
-### Paso 5: Crear un Superusuario Administrador (si no tienes uno)
-```bash
-poetry run python manage.py createsuperuser
-```
-*Introduce un nombre de usuario, correo y contraseña.*
-
----
-
-### Paso 6: Iniciar tu Servidor
-```bash
-poetry run python manage.py runserver
-```
-¡Listo! Ya tienes tanto la interfaz web como la API REST plenamente operativas en tu proyecto.
-
----
-
 ## 6. Cómo Funciona y Cómo se Usa la Web GUI
 
-Una vez acoplado, tendrás los portales web accesibles desde cualquier navegador:
-
 ### A. Panel de Administración (Django Admin - `http://localhost:8000/admin/`)
-1. Inicia sesión con tu cuenta de administrador en `/admin/` (o la ruta de admin de tu proyecto).
-2. Entra al menú **Documentos Cifrados -> Añadir Documento Cifrado**.
-3. Selecciona tu documento en formato permitido (**PDF, LibreOffice .odt/.ods o Microsoft Office .docx/.xlsx**).
-4. Opcionalmente escribe una contraseña personalizada o déjalo vacío para que el sistema genere una automáticamente con alta entropía criptográfica (24 caracteres).
-5. Escribe las direcciones de correo autorizadas (usa el botón `➕ Añadir otro correo` para agregar destinatarios de forma interactiva).
-6. Pulsa **Guardar**.
-7. **Resultado**:
-   * **Descarga Automática de Recibo de Credenciales**: El navegador descargará al instante un archivo de texto `<nombre_original>_credenciales.txt` con el hash SHA-256, código secreto de acceso, contraseña y enlaces directos, para que el administrador pueda guardarlo de forma local sin que quede expuesto en claro en el servidor.
-   * La pantalla mostrará el **Código Secreto de Acceso (`access_code`)** con botón de copiado rápido y la **Contraseña Asignada**.
-   * Un botón para descargar el archivo cifrado `<nombre_original>.enc`.
+1. Inicia sesión en `/admin/` con una cuenta de staff/superusuario.
+2. Entra a **Documentos Cifrados -> Añadir Documento Cifrado**.
+3. Selecciona tu documento en formato admitido (**PDF, LibreOffice .odt/.ods o Microsoft Office .docx/.xlsx**).
+4. Introduce las direcciones de correo autorizadas con el control dinámico `➕ Añadir otro correo`.
+5. Pulsa **Guardar**.
+6. **Resultado**:
+   * El sistema genera la DEK, cifra el binario una sola vez y construye los sobres digitales individuales (`user_envelopes`).
+   * La vista muestra la insignia de estado (`🟢 Activo (Listo para consumo)`).
+   * Se habilita el botón `📥 .enc` para descargar el archivo cifrado y distribuirlo libremente.
+   * Se habilita el botón **`🔓 Original (Admin)`** para realizar una descarga administrativa descifrada sin destruir el archivo en disco ni marcarlo como consumido (**Audit Bypass**).
 
 ---
 
-### B. Portal Público de Solicitud de Contraseña (`http://localhost:8000/freedec/`)
-1. El usuario final o destinatario entra a `http://localhost:8000/freedec/`.
-2. Sube su copia del documento (bien el archivo original o el archivo `.enc` que le facilitaron).
-3. Pega el código de acceso facilitado por el emisor.
-4. Escribe su correo electrónico registrado en la lista de autorización.
-5. Pulsa **Solicitar Contraseña**.
-6. **Resultado**: La web mostrará un mensaje de confirmación neutro (anti-enumeración de usuarios). Si los datos son legítimos y el correo está autorizado:
-   * El sistema enviará de inmediato la contraseña al correo del destinatario, **especificando explícitamente el nombre del documento** al que corresponde la clave y un enlace directo a la pestaña de descifrado.
-   * El sistema registra el acceso en la tabla de auditoría (`DocumentAccessLog`), actualizando el contador `access_count`, la fecha de último acceso y la IP del solicitante.
+### B. Portal Público de Solicitud de Acceso (`http://localhost:8000/freedec/`)
+1. El usuario final o destinatario accede a `http://localhost:8000/freedec/` (o `/freedec/solicitar/`).
+2. Sube su copia del archivo `.enc` (o el documento de control).
+3. Introduce su correo electrónico registrado.
+4. Pulsa **Solicitar Enlace de Acceso y OTP**.
+5. **Resultado**:
+   * La web muestra una respuesta genérica neutra (mitigación anti-enumeración de usuarios y archivos).
+   * Si el archivo y correo coinciden con un documento activo:
+     - Se genera un token de un solo uso y un código OTP de 6 dígitos con **expiración estricta de 15 minutos**.
+     - Se despacha de forma automática un correo electrónico con el Magic Link (`https://dominio/freedec/consumir/?t={token}`) y el código OTP.
+     - Se audita el evento con `action="solicitud_acceso"`.
+   * Si el documento **ya había sido consumido**:
+     - No se fugan datos. Se envía un correo informándole que el archivo ya fue retirado por `consumed_by` en `consumed_at`.
+     - Se audita con `action="intento_post_consumo"`.
 
 ---
 
-### C. Portal Público de Descifrado de Archivos `.enc` (`http://localhost:8000/freedec/descifrar/`)
-*¿Cómo se pasa del archivo `.enc` al documento original descifrado?*
-1. El usuario abre `http://localhost:8000/freedec/descifrar/` (o pulsa **🔓 Descifrar Archivo (.enc)** en la barra de navegación).
-2. Sube el archivo `.enc`.
-3. Pega la contraseña que acaba de recibir en su correo electrónico.
-4. Pulsa **Descifrar y Descargar Archivo Original**.
-5. **Resultado**: El sistema valida la contraseña en memoria, descifra el contenedor con AES-128/Fernet y descarga inmediatamente el archivo original con su nombre y extensión correcta (`documento.pdf`, `contrato.docx`, etc.).
+### C. Portal de Consumo y Descarga Destructiva (Burn-After-Read) (`http://localhost:8000/freedec/consumir/`)
+1. El usuario hace clic en el **Enlace Mágico** recibido en su correo (`?t=...`) o accede a `/freedec/consumir/` e introduce su **código OTP de 6 dígitos** y correo electrónico.
+2. **Resultado Inmediato**:
+   * El sistema valida la vigencia del token/código (no expirado y no usado).
+   * Abre el sobre digital del usuario para extraer la DEK y descifra el binario original en memoria.
+   * Se inicia la descarga inmediata del archivo original en el navegador (`documento.pdf`, `contrato.docx`, etc.).
+   * **Destrucción Física en Servidor**: El archivo `.enc` en disco es eliminado definitivamente mediante `encrypted_file.delete(save=False)`.
+   * El estado en base de datos se actualiza: `is_consumed = True`, `consumed_by = email`, `consumed_at = timezone.now()`.
+   * El token se marca como `is_used = True`.
+   * Se audita con `action="descifrado_completado_burn"`.
 
 ---
 
-### D. Eliminación de Documentos y Borrado Físico en Disco (Derecho al Olvido / GDPR)
-Al eliminar un documento registrado:
-* **Señal `post_delete` automática**: Al borrar un documento desde el panel de Django Admin o el ORM, se elimina automáticamente su archivo físico `.enc` asociado en disco para evitar archivos confidenciales huérfanos.
-* **Botón directo en Django Admin**: La tabla de documentos en `/admin/freedec/encrypteddocument/` dispone de un botón directo `🗑️ Eliminar` por cada fila.
-* **Comando CLI de borrado**:
-  ```bash
-  # Listar documentos existentes
-  poetry run python manage.py delete_document --list
-
-  # Eliminar un documento específico por nombre o hash
-  poetry run python manage.py delete_document balance_anual.pdf
-
-  # Eliminar todos los registros y archivos físicos (.enc)
-  poetry run python manage.py delete_document --all
-  ```
-
----
-
-### E. Compatibilidad con Despliegues en Apache (Múltiples Apps en el Mismo Dominio)
-Freedec está diseñado específicamente para convivir con otras aplicaciones en el mismo servidor Apache:
-* **Espacio de nombres aislado**: Todas las rutas cuelgan de `/freedec/` (ej. `http://dominio.com/freedec/`), sin invadir la raíz `/` ni rutas genéricas.
-* **Resolución dinámica con SCRIPT_NAME**: En las plantillas HTML se usa `{% url 'freedec:gui-public-request' %}` y `{% url 'freedec:gui-public-decrypt' %}`, adaptándose automáticamente a subcarpetas como `WSGIScriptAlias /freedec` o `ProxyPass`.
-* **Admin Desacoplado**: Los recibos y enlaces al panel de administración se resuelven dinámicamente mediante `reverse('admin:index')`, respetando la URL exacta que tu proyecto tenga configurada para Django Admin.
-
----
-
-### F. Descifrado por Terminal (Línea de Comandos CLI)
-Para administradores, scripts o usuarios avanzados:
+### D. Descifrado por Terminal (Línea de Comandos CLI)
+Para administradores, scripts o recuperación fuera de banda:
 ```bash
-poetry run python manage.py decrypt_document ruta/al/archivo.enc --password "TuContraseña" --output documento_recuperado.pdf
+# Consumo y destrucción vía Magic Link token:
+poetry run python manage.py decrypt_document ruta/archivo.enc --token "TOKEN_URLSAFE"
+
+# Consumo y destrucción vía código OTP:
+poetry run python manage.py decrypt_document ruta/archivo.enc --otp "123456" --email "usuario@empresa.com"
+
+# Descarga administrativa preservada (Audit Bypass, sin destruir el archivo):
+poetry run python manage.py decrypt_document ruta/archivo.enc --admin
+```
+
+---
+
+### E. Eliminación Administrativa de Documentos
+```bash
+# Listar documentos existentes y su estado de consumo (🟢 Activo / 🔥 Consumido):
+poetry run python manage.py delete_document --list
+
+# Eliminar un documento específico:
+poetry run python manage.py delete_document balance_anual.pdf
+
+# Eliminar todos los registros y archivos físicos (.enc):
+poetry run python manage.py delete_document --all
 ```
 
 ---
 
 ## 7. Endpoints de la API REST
 
-Para la integración de Freedec con clientes externos, frontends desacoplados (React, Vue, Angular) o aplicaciones móviles, el sistema expone su API pública para la verificación y despacho de contraseñas. *(Nota: La administración, cifrado y registro de nuevos documentos se gestiona de forma centralizada y segura a través del panel de **Django Admin**)*:
-
-### Recuperación Pública de Contraseña (`POST /freedec/api/public/request-password/`)
-* **Headers**: Sin autenticación requerida (Público con limitación de tasa `AnonRateThrottle`).
+### 1. Solicitud Pública de Acceso (`POST /freedec/public/request-access/`)
+* **Headers**: Sin autenticación (`AnonRateThrottle`).
 * **Form-Data**:
-  * `file`: Archivo binario original en posesión del usuario.
-  * `access_code`: Código secreto de acceso (Zero-Knowledge).
+  * `file`: Archivo cifrado `.enc` o documento de control.
   * `email`: Dirección de correo electrónico del destinatario.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/freedec/api/public/request-password/ \
-  -F "file=@documento.pdf" \
-  -F "access_code=CODIGO_DE_ACCESO" \
+curl -X POST http://127.0.0.1:8000/freedec/public/request-access/ \
+  -F "file=@contrato.pdf.enc" \
   -F "email=auditor@empresa.com"
 ```
 
@@ -384,8 +305,38 @@ curl -X POST http://127.0.0.1:8000/freedec/api/public/request-password/ \
 ```json
 {
   "status": "processed",
-  "message": "Si los datos del documento y credenciales son válidos, se ha enviado un correo con las instrucciones de descifrado."
+  "message": "Si el archivo y el correo electrónico coinciden con un documento activo y autorizado, se ha enviado un enlace de acceso y un código OTP a su bandeja de entrada."
 }
+```
+
+---
+
+### 2. Consumo y Descarga Directa por Magic Link (`GET /freedec/api/public/consume/?t=...`)
+* **Query Param**: `t` (token URL-safe recibido en el correo).
+* **Respuesta**: Binario original en `HTTP 200 OK` con cabecera `Content-Disposition: attachment; filename="documento.pdf"`.
+* **Efecto colateral**: Destrucción física del binario en disco en el servidor (Burn-After-Read).
+
+```bash
+curl -OJ "http://127.0.0.1:8000/freedec/api/public/consume/?t=TOKEN_URLSAFE"
+```
+
+---
+
+### 3. Consumo y Descarga por Código OTP (`POST /freedec/api/public/consume/`)
+* **Headers**: `Content-Type: application/json`
+* **JSON Body**:
+```json
+{
+  "otp_code": "123456",
+  "email": "auditor@empresa.com"
+}
+```
+
+```bash
+curl -X POST http://127.0.0.1:8000/freedec/api/public/consume/ \
+  -H "Content-Type: application/json" \
+  -d '{"otp_code": "123456", "email": "auditor@empresa.com"}' \
+  --output documento_descifrado.pdf
 ```
 
 ---
@@ -394,455 +345,16 @@ curl -X POST http://127.0.0.1:8000/freedec/api/public/request-password/ \
 
 > [!IMPORTANT]
 > **¿Por qué NUNCA se usa `static()` en producción?**  
-> Cuando pones `DEBUG = False`, Django desactiva `static()` para proteger el servidor. Servir archivos pesados desde Python consumiría toda la memoria y bloquearía a los demás usuarios. En producción, **Nginx o Apache deben entregar la carpeta `/media/` directamente desde el disco**.
+> Cuando pones `DEBUG = False`, Django desactiva el servicio de archivos estáticos y media para proteger la memoria y el rendimiento del servidor. En producción, **Nginx o Apache deben entregar la carpeta `/media/` directamente desde el disco**.
 
 ### Opción A: Configuración en **Nginx**
-Añade este bloque en tu archivo `/etc/nginx/sites-available/tudominio`:
-
 ```nginx
 server {
     listen 443 ssl http2;
     server_name tudominio.com;
 
-    # Servir la carpeta MEDIA directamente desde el disco:
     location /media/ {
         alias /var/www/tu_proyecto/media/;
-        autoindex off;                          # Desactiva listado de archivos
-        add_header X-Content-Type-Options "nosniff";
-        default_type application/octet-stream;  # Fuerza descarga segura
-        location ~* \.(php|py|sh|pl|cgi|exe)$ { deny all; } # Bloquea scripts
-    }
-
-    # Resto de la aplicación Django (Gunicorn):
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### Opción B: Configuración en **Apache (httpd con mod_wsgi)**
-Añade estas líneas dentro de tu VirtualHost (`/etc/apache2/sites-available/default-ssl.conf`):
-
-```apache
-<VirtualHost *:443>
-    ServerName tudominio.com
-
-    # 1. Alias para servir la carpeta /media/ desde el disco
-    Alias /media/ /var/www/tu_proyecto/media/
-
-    <Directory /var/www/tu_proyecto/media>
-        Options -Indexes -FollowSymLinks
-        AllowOverride None
-        Require all granted
-        <IfModule mod_headers.c>
-            Header always set X-Content-Type-Options "nosniff"
-        </IfModule>
-        <FilesMatch "\.(php|py|sh|pl|cgi|exe)$">
-            Require all denied
-        </FilesMatch>
-        ForceType application/octet-stream
-    </Directory>
-
-    # 2. Conexión con Django vía mod_wsgi
-    WSGIDaemonProcess tu_proyecto python-home=/var/www/tu_proyecto/.venv python-path=/var/www/tu_proyecto
-    WSGIProcessGroup tu_proyecto
-    WSGIScriptAlias / /var/www/tu_proyecto/config/wsgi.py
-</VirtualHost>
-```
-
----
-
-## 9. Resolución de Problemas Frecuentes (FAQ)
-
-### ¿Error: `ImproperlyConfigured: Falta la configuración FREEDEC_FERNET_KEY`?
-* **Causa**: No has definido la clave maestra en tu `settings.py`.
-* **Solución**: Genera una con `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` y colócala en `settings.py`.
-
-### ¿Error 404 al intentar descargar el archivo cifrado `.enc`?
-* **Causa en desarrollo**: Falta la línea `urlpatterns += static(settings.MEDIA_URL, ...)` en tu `urls.py`.
-* **Causa en producción**: No has configurado el alias `/media/` en tu servidor Nginx o Apache.
-
-### ¿No llega el correo con la contraseña al destinatario?
-* **Causa en desarrollo / sandbox por defecto**: Tienes `EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'`. La contraseña se imprime en la terminal donde corre Django, no se envía por internet.
-* **Solución**: Configura tu servidor SMTP en un archivo `.env` en la raíz (copiando `.env.example`). Dispones de plantillas para Gmail, Brevo, Outlook, etc. Puedes comprobar tu conexión SMTP al instante ejecutando:
-  ```bash
-  poetry run python manage.py test_smtp tu-correo@gmail.com
-  ```
-
-### ¿Qué sucede cuando elimino un registro de documento cifrado?
-* **Eliminación física garantizada**: Gracias al receptor de señales `post_delete`, cuando se elimina un registro (sea individualmente desde el Admin, por lotes o mediante `QuerySet.delete()`), el archivo físico `.enc` asociado en disco (`media_staging/encrypted_docs/`) se destruye automáticamente del sistema de archivos, garantizando el cumplimiento de borrado seguro y GDPR.
-
-### ¿Error: `Tipo de archivo no permitido`?
-* **Causa**: Solo se admiten archivos **PDF, LibreOffice (.odt, .ods, .odp, .odg) y MS Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)**. No se permiten archivos de texto plano `.txt`, ejecutables `.exe` ni scripts `.sh`.
-
----
----
-
-<a id="section-english"></a>
-# 🇬🇧 English: Complete Guide for Freedec Application
-
-Welcome to the official documentation for **Freedec**. 
-
----
-
-## 📑 Table of Contents (English)
-1. [What is Freedec and what problem does it solve?](#1-what-is-freedec-and-what-problem-does-it-solve)
-2. [System Prerequisites](#2-system-prerequisites)
-3. [Quick Test Sandbox (Staging mode without touching your project)](#3-quick-test-sandbox-staging-mode)
-4. [The 4 Installation Options into an Existing Project](#4-the-4-installation-options-into-an-existing-project)
-5. [Step-by-Step Integration Checklist (Line by Line)](#5-step-by-step-integration-checklist-line-by-line)
-6. [How the Web GUI Works and How to Use It](#6-how-the-web-gui-works-and-how-to-use-it)
-7. [REST API Endpoints (for Developers and cURL)](#7-rest-api-endpoints)
-8. [Production MEDIA Configuration (Nginx & Apache)](#8-production-media-configuration-nginx--apache)
-9. [Frequently Asked Questions (FAQ / Troubleshooting)](#9-frequently-asked-questions-faq--troubleshooting)
-
----
-
-## 1. What is Freedec and what problem does it solve?
-
-Imagine you need to share a highly confidential document (a contract, an audit, master database credentials) with a specific list of recipients. If you send both the file and the password over the same channel (e.g. in the same email or chat), any attacker who intercepts the communication gains full access.
-
-**Freedec solves this through a decentralized Zero-Knowledge architecture and multi-factor verification:**
-
-1. **The Administrator uploads the document**:
-   * The system computes the **exact digital fingerprint of the file (SHA-256 hash)**. No sequential IDs (like `document/1`) are used, completely preventing Insecure Direct Object References (anti-IDOR).
-   * The file is encrypted immediately using **AES-128-CBC + HMAC-SHA256 (Fernet)** and securely saved to disk.
-   * A 256-bit **Secret Access Code (`access_code`)** is generated. The administrator receives this code once to hand over in person or via secure channel (Signal/SMS). In the database, it is stored **hashed with PBKDF2** (even if attackers dump the database, they cannot view the code).
-2. **The Recipient retrieves the password**:
-   * The user uploads their copy of the document to the Freedec web portal.
-   * Enters the `access_code` and their email address.
-   * The system calculates the SHA-256 hash in real time, verifies possession of the exact file, checks the access code, and confirms their email is whitelisted.
-   * **The password is NEVER shown on the screen**: it is dispatched automatically and exclusively to the inbox of the verified email address.
-
----
-
-## 2. System Prerequisites
-
-Verify that your system has the following tools installed:
-
-* **Python 3.11 or 3.12**:
-  Check with:
-  ```bash
-  python3 --version
-  ```
-* **Poetry (Modern Python dependency manager)**:
-  Check with:
-  ```bash
-  poetry --version
-  ```
-  *If not installed, install it on Linux/macOS using:*
-  ```bash
-  curl -sSL https://install.python-poetry.org | python3 -
-  ```
-
----
-
-## 3. Quick Test Sandbox (Staging Mode)
-
-The repository provides a standalone preconfigured test server. **You do not need an existing Django project to evaluate it.**
-
-### Step 1: Clone and Install Dependencies
-```bash
-git clone https://github.com/jrubioh1/Freedec.git
-cd Freedec
-poetry install
-```
-
-### Step 2: Initialize Test Database
-Run the automated command:
-```bash
-poetry run python manage.py setup_staging
-```
-*Creates a local SQLite database (`db_staging.sqlite3`), creates the superuser `admin` with password `admin123`, and generates a valid sample file `sample_document.pdf`.*
-
-### Step 3: Start the Server
-```bash
-poetry run python manage.py runserver 8000
-```
-
-### Step 4: Open the Web GUI in Your Browser
-* **Public Password Request Portal**: Open [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/) in your browser.
-* **Public Document Decryption Portal (.enc)**: Open [http://127.0.0.1:8000/freedec/descifrar/](http://127.0.0.1:8000/freedec/descifrar/) in your browser.
-* **Admin Panel (Django Admin)**: Log in at [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (`admin` / `admin123`) to encrypt and register documents under **Encrypted Documents -> Add**.
-
-> [!TIP]
-> **Clear Settings & Local Testing Presetting**: The application runs directly without requiring a `.env` file.
-> - `config/settings.py`: Provides the **generic setting** in plain clear Python (zero `.env` dependency and no private hardcoded credentials).
-> - `config/presettings.py`: Holds the local test presetting with staging database and real SMTP (**Ethereal Email**) to inspect dispatched emails in real time at [https://ethereal.email/messages](https://ethereal.email/messages) by running `python manage.py runserver --settings=config.presettings`.
-
-### Step 5: Run Automated CLI Demo (Optional)
-In another terminal:
-```bash
-poetry run python scripts/demo_flow.py
-```
-
----
-
-## 4. The 4 Installation Options into an Existing Project
-
-If you already have an existing Django project, you can integrate `freedec` in any of these 4 ways:
-
-### Option 1: Copy the `freedec/` Folder (Simplest & Most Direct)
-* **What to copy?**: **ONLY the `freedec/` folder**.
-* **What NOT to copy?**: **DO NOT copy `config/` or root `manage.py`** (your project already has its own).
-* **Command to install requirements**:
-  In your host project directory:
-  ```bash
-  poetry add cryptography djangorestframework
-  ```
-
-#### Visual Directory Comparison:
-```text
-Your Project BEFORE copying:             Your Project AFTER copying:
-----------------------------             ---------------------------
-my_project/                              my_project/
-├── manage.py                            ├── manage.py
-├── my_config/                           ├── my_config/
-│   ├── settings.py                      │   ├── settings.py  <-- Add 4 lines
-│   ├── urls.py                          │   ├── urls.py      <-- Add 1 line
-│   └── wsgi.py                          │   └── wsgi.py
-                                         └── freedec/         <-- Only copy this!
-                                             ├── models.py
-                                             ├── views.py
-                                             ├── templates/
-                                             └── ...
-```
-
----
-
-### Option 2: As a Direct Git Dependency via Poetry (Best for Teams)
-```bash
-poetry add git+https://github.com/jrubioh1/Freedec.git
-```
-
----
-
-### Option 3: Local Editable Path via Poetry (Monorepos & Active Development)
-```bash
-poetry add --editable /absolute/path/to/Freedec
-```
-
----
-
-### Option 4: Via PyPI or Private Package Registry
-```bash
-# In Freedec repository:
-poetry build
-poetry publish
-
-# In your host project:
-poetry add freedec
-```
-
----
-
-## 5. Step-by-Step Integration Checklist (Line by Line)
-
-Follow these 6 numbered steps in your existing Django project:
-
-### Step 1: Generate Master Fernet Key
-In your terminal:
-```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
----
-
-### Step 2: Edit Your `settings.py` File
-```python
-import os
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# 1. Add 'rest_framework' and 'freedec.apps.FreedecConfig'
-INSTALLED_APPS = [
-    # Existing apps...
-    'rest_framework',
-    'freedec.apps.FreedecConfig',
-]
-
-# 2. Configure master key generated in Step 1
-FREEDEC_FERNET_KEY = os.environ.get("FREEDEC_FERNET_KEY", "YOUR_KEY_HERE==")
-
-# 3. Maximum file size (default: 50 MB)
-FREEDEC_MAX_FILE_SIZE = 50 * 1024 * 1024
-
-# 4. MEDIA settings
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
-
-# 5. Email settings
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-DEFAULT_FROM_EMAIL = 'no-reply@yourdomain.com'
-
-# 6. DRF Rate Limiting
-REST_FRAMEWORK = {
-    'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.AnonRateThrottle'],
-    'DEFAULT_THROTTLE_RATES': {'anon': '5/minute'},
-}
-```
-
----
-
-### Step 3: Edit Your Main `urls.py` File
-```python
-from django.contrib import admin
-from django.urls import path, include
-from django.conf import settings
-from django.conf.urls.static import static
-
-urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('freedec/', include('freedec.urls', namespace='freedec')),
-]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-```
-
----
-
-### Step 4: Run Database Migrations
-```bash
-poetry run python manage.py makemigrations freedec
-poetry run python manage.py migrate
-```
-
----
-
-### Step 5: Create Superuser (if needed)
-```bash
-poetry run python manage.py createsuperuser
-```
-
----
-
-### Step 6: Start Your Server
-```bash
-poetry run python manage.py runserver
-```
-
----
-
-## 6. How the Web GUI Works and How to Use It
-
-### A. Admin Panel (Django Admin - `http://localhost:8000/admin/`)
-1. Log in at `/admin/` (or your project's configured Django admin URL) with an administrator account.
-2. Navigate to **Encrypted Documents -> Add Encrypted Document**.
-3. Select your document in an authorized format (**PDF, LibreOffice .odt/.ods, or MS Office .docx/.xlsx**).
-4. Optionally enter a custom decryption password, or leave it blank to automatically generate a cryptographically strong 24-character password.
-5. Enter authorized recipient emails (interactive `➕ Add another email` button available).
-6. Click **Save**.
-7. **Result**:
-   * **Automatic Credentials Receipt Download**: The browser immediately downloads `<original_filename>_credenciales.txt` containing the SHA-256 hash, secret access code, assigned password, authorized emails, and direct access links, allowing local storage without server plaintext persistence.
-   * The screen displays the secret **Access Code (`access_code`)** with quick-copy button and the **Assigned Password**.
-   * A direct download button for the encrypted file `<original_filename>.enc`.
-
----
-
-### B. Public Password Request Portal (`http://localhost:8000/freedec/`)
-1. The user navigates to `http://localhost:8000/freedec/`.
-2. Uploads their file copy (either the original file or the `.enc` encrypted container).
-3. Pastes the secret access code provided by the issuer.
-4. Enters their authorized email address.
-5. Clicks **Request Password**.
-6. **Result**: A uniform, neutral confirmation message is displayed (preventing user or document enumeration). If the data matches and the email is authorized:
-   * The system immediately emails the password to the recipient, **explicitly citing the document name** and a direct link to the decryption portal.
-   * The access event is recorded in the `DocumentAccessLog` audit table, incrementing `access_count` and recording the last access timestamp and client IP.
-
----
-
-### C. Public Document Decryption Portal (`http://localhost:8000/freedec/descifrar/`)
-*How to turn the `.enc` file back into the original document?*
-1. The user navigates to `http://localhost:8000/freedec/descifrar/` (or clicks **🔓 Descifrar Archivo (.enc)** in the navbar).
-2. Uploads the `.enc` file.
-3. Pastes the password received in their email.
-4. Clicks **Descifrar y Descargar Archivo Original**.
-5. **Result**: The system decrypts the container in memory with Fernet and triggers an instant download of the original file with its exact name and extension (`document.pdf`, `contract.docx`, etc.).
-
----
-
-### D. Document Deletion & Physical Disk Erasure (Right to Erasure / GDPR)
-When deleting a registered document:
-* **Automated `post_delete` Signal**: Deleting a record via Django Admin or ORM triggers automatic unlinking and physical deletion of the `.enc` file in `MEDIA_ROOT`.
-* **Direct Admin Button**: The document table at `/admin/freedec/encrypteddocument/` provides an inline `🗑️ Eliminar` button on each row.
-* **CLI Management Command**:
-  ```bash
-  # List existing documents
-  poetry run python manage.py delete_document --list
-
-  # Delete a specific document by name or hash
-  poetry run python manage.py delete_document balance_anual.pdf
-
-  # Delete all database records and physical (.enc) files
-  poetry run python manage.py delete_document --all
-  ```
-
----
-
-### E. Apache Deployment & Multi-App Compatibility (Same Domain)
-Freedec is engineered to run seamlessly alongside other applications on the same Apache server:
-* **Isolated Namespace**: All routes reside under `/freedec/` (e.g. `http://domain.com/freedec/`), avoiding conflicts with the root domain `/` or other apps.
-* **Dynamic Resolution with SCRIPT_NAME**: HTML templates use `{% url 'freedec:gui-public-request' %}` and `{% url 'freedec:gui-public-decrypt' %}`, adapting dynamically to subfolders (`WSGIScriptAlias /freedec` or `ProxyPass`).
-* **Decoupled Admin Integration**: Receipts and links to Django admin dynamically use `reverse('admin:index')`, respecting whatever admin URL the host project defines.
-
----
-
-### F. Command Line Decryption (CLI)
-For system administrators, automated pipelines, or offline recovery:
-```bash
-poetry run python manage.py decrypt_document path/to/file.enc --password "YourPassword" --output recovered_document.pdf
-```
-
----
-
-## 7. REST API Endpoints
-
-For integrating Freedec with external clients, decoupled frontends (React, Vue, Angular), or mobile applications, the system provides a public REST API for document verification and password dispatching. *(Note: Administrative registration, encryption, and document management is centralized exclusively and securely through **Django Admin**)*:
-
-### Public Password Request (`POST /freedec/api/public/request-password/`)
-* **Headers**: No authentication required (Public, protected with `AnonRateThrottle` rate limiting).
-* **Form-Data**:
-  * `file`: Original binary document in user possession.
-  * `access_code`: Secret access code (Zero-Knowledge).
-  * `email`: Recipient email address.
-
-```bash
-curl -X POST http://127.0.0.1:8000/freedec/api/public/request-password/ \
-  -F "file=@document.pdf" \
-  -F "access_code=SECRET_ACCESS_CODE" \
-  -F "email=auditor@corp.com"
-```
-
-* **Successful / Neutral Security Response (`HTTP 200 OK`)**:
-```json
-{
-  "status": "processed",
-  "message": "Si los datos del documento y credenciales son válidos, se ha enviado un correo con las instrucciones de descifrado."
-}
-```
-
----
-
-## 8. Production MEDIA Configuration (Nginx & Apache)
-
-> [!WARNING]
-> **Why NEVER use `static()` in production?**  
-> When `DEBUG = False`, Django disables `static()` for performance and security. Serving large files via Python would freeze workers. Reverse proxies (Nginx or Apache) must serve `/media/` directly from the OS kernel.
-
-### Option A: **Nginx** Configuration
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name yourdomain.com;
-
-    location /media/ {
-        alias /var/www/your_project/media/;
         autoindex off;
         add_header X-Content-Type-Options "nosniff";
         default_type application/octet-stream;
@@ -859,14 +371,14 @@ server {
 }
 ```
 
-### Option B: **Apache** Configuration (`httpd` / `mod_wsgi`)
+### Opción B: Configuración en **Apache (httpd con mod_wsgi)**
 ```apache
 <VirtualHost *:443>
-    ServerName yourdomain.com
+    ServerName tudominio.com
 
-    Alias /media/ /var/www/your_project/media/
+    Alias /media/ /var/www/tu_proyecto/media/
 
-    <Directory /var/www/your_project/media>
+    <Directory /var/www/tu_proyecto/media>
         Options -Indexes -FollowSymLinks
         AllowOverride None
         Require all granted
@@ -879,33 +391,166 @@ server {
         ForceType application/octet-stream
     </Directory>
 
-    WSGIDaemonProcess your_project python-home=/var/www/your_project/.venv python-path=/var/www/your_project
-    WSGIProcessGroup your_project
-    WSGIScriptAlias / /var/www/your_project/config/wsgi.py
+    WSGIScriptAlias / /var/www/tu_proyecto/config/wsgi.py
 </VirtualHost>
 ```
 
 ---
 
-## 9. Frequently Asked Questions (FAQ / Troubleshooting)
+## 9. Resolución de Problemas Frecuentes (FAQ)
 
-### Error: `ImproperlyConfigured: Falta la configuración FREEDEC_FERNET_KEY`?
-* **Cause**: Master key is missing in `settings.py`.
-* **Fix**: Generate one via `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and set it in `settings.py`.
+### ¿Qué ocurre si un enlace expira?
+Los enlaces y códigos OTP tienen una vigencia estricta de 15 minutos. Si el usuario no realiza la descarga en ese intervalo, el token queda invalidado y deberá solicitar uno nuevo introduciendo nuevamente su archivo y correo en el portal.
 
-### 404 Error downloading encrypted `.enc` file?
-* **In development**: Missing `urlpatterns += static(settings.MEDIA_URL, ...)` in `urls.py`.
-* **In production**: Missing `/media/` alias in your Nginx or Apache configuration.
+### ¿Se puede recuperar un archivo una vez consumido?
+No. La política **Burn-After-Read** elimina físicamente los bytes del archivo cifrado de disco (`save=False`). Por motivos de seguridad y privacidad, el usuario que intente descargarlo posteriormente recibirá una notificación indicándole quién retiró el documento para que le solicite una copia directamente.
 
-### Password email not received?
-* **In default development / staging**: You have `EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'`. Passwords print to the console terminal running Django.
-* **Fix**: Configure real SMTP credentials in a `.env` file (copying `.env.example`). You can test your SMTP delivery immediately with:
+---
+---
+
+<a id="section-english"></a>
+# 🇬🇧 English: Complete Freedec Guide
+
+Welcome to the official **Freedec** documentation.
+
+---
+
+## 📑 Table of Contents (English)
+1. [What is Freedec and what problem does it solve?](#1-what-is-freedec-and-what-problem-does-it-solve)
+2. [System Prerequisites](#2-system-prerequisites)
+3. [Quick Staging Sandbox](#3-quick-staging-sandbox)
+4. [Installation Options](#4-installation-options)
+5. [Step-by-Step Integration Guide](#5-step-by-step-integration-guide)
+6. [Web GUI Usage & Lifecycle](#6-web-gui-usage--lifecycle)
+7. [REST API Endpoints](#7-rest-api-endpoints)
+8. [Production MEDIA Configuration (Nginx & Apache)](#8-production-media-configuration-nginx--apache)
+9. [FAQ & Security Operations](#9-faq--security-operations)
+
+---
+
+## 1. What is Freedec and what problem does it solve?
+
+Sharing sensitive files using static passwords or conventional channels creates vulnerability windows: credentials can be leaked, files remain indefinitely on servers, and authorized recipients risk unauthorized third-party access.
+
+**Freedec resolves this using a Multi-User DEK Envelope architecture, dynamic Proof-of-Possession via 15-minute Magic Link / OTP, and irreversible physical deletion upon first download (Burn-After-Read):**
+
+1. **Multi-User Data Encryption Key (DEK) Architecture**:
+   * Each document is encrypted once using a symmetric Data Encryption Key (`Fernet.generate_key()`).
+   * Individual digital envelopes (`user_envelopes`) are constructed for every email in `allowed_emails`: the DEK is encrypted with a unique random user secret, and that secret is wrapped with the server master key (`settings.FREEDEC_FERNET_KEY`).
+   * Eliminates static shared passwords.
+2. **Dynamic Real-Time Proof-of-Possession**:
+   * Recipients request access by submitting the `.enc` file and their email.
+   * Generates a 32-byte URL-safe token and a 6-digit OTP code with strict **15-minute expiration**.
+   * Only the **SHA-256 hash** of the token is persisted in the database (Zero-Knowledge).
+   * Direct Magic Links (`/freedec/consumir/?t={token}`) and OTP codes are delivered exclusively to the verified inbox.
+3. **Burn-After-Read (Destructive Consumption)**:
+   * As soon as an authorized recipient downloads the document, the physical `.enc` file is permanently deleted from storage (`document.encrypted_file.delete(save=False)`).
+   * The database record is updated to `is_consumed = True`, storing `consumed_by` and `consumed_at`.
+4. **Post-Consumption Management**:
+   * Subsequent access requests automatically notify the requester that the document was already claimed by `{consumed_by}` on `{consumed_at}` and direct them to ask that person for a copy.
+5. **Non-Destructive Administrative Access (Audit Bypass)**:
+   * Authenticated staff in Django Admin can download the decrypted original document using the server key without destroying the file and without setting `is_consumed = True`, logging `admin_inspeccion_preservada`.
+
+---
+
+## 2. System Prerequisites
+
+* **Python 3.11 or 3.12** (`python3 --version`).
+* **Poetry Package Manager**:
   ```bash
-  poetry run python manage.py test_smtp your-email@gmail.com
+  curl -sSL https://install.python-poetry.org | python3 -
   ```
 
-### What happens when an encrypted document record is deleted?
-* **Guaranteed Physical File Deletion**: A `post_delete` signal listener guarantees that whenever an `EncryptedDocument` record is deleted (from Django Admin single view, bulk actions, or ORM `QuerySet.delete()`), the underlying physical `.enc` file in `media_staging/encrypted_docs/` is immediately removed from disk for strict GDPR and privacy compliance.
+---
 
-### Error: `Tipo de archivo no permitido`?
-* **Cause**: Only **PDF, LibreOffice (.odt, .ods, .odp, .odg), and MS Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)** documents are allowed. Plain `.txt`, executables `.exe`, and scripts `.sh` are rejected.
+## 3. Quick Staging Sandbox
+
+```bash
+git clone https://github.com/jrubioh1/Freedec.git
+cd Freedec
+poetry install
+poetry run python manage.py setup_staging
+poetry run python manage.py runserver 8000
+```
+* **Request Access**: [http://127.0.0.1:8000/freedec/](http://127.0.0.1:8000/freedec/)
+* **Consume Document (Burn-After-Read)**: [http://127.0.0.1:8000/freedec/consumir/](http://127.0.0.1:8000/freedec/consumir/)
+* **Django Admin**: [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) (`admin` / `admin123`)
+
+---
+
+## 4. Installation Options
+
+* **Option 1**: Copy `freedec/` into your project and add `cryptography` + `djangorestframework`.
+* **Option 2**: Add via Git with Poetry: `poetry add git+https://github.com/jrubioh1/Freedec.git`.
+* **Option 3**: Add as Git submodule: `git submodule add https://github.com/jrubioh1/Freedec.git apps/freedec`.
+
+---
+
+## 5. Step-by-Step Integration Guide
+
+1. **Generate Master Server Key**:
+   ```bash
+   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+2. **Add to `settings.py`**:
+   ```python
+   INSTALLED_APPS += ['rest_framework', 'freedec.apps.FreedecConfig']
+   FREEDEC_FERNET_KEY = os.environ.get("FREEDEC_FERNET_KEY", "YOUR_KEY==")
+   FREEDEC_MAX_FILE_SIZE = 50 * 1024 * 1024
+   MEDIA_URL = '/media/'
+   MEDIA_ROOT = BASE_DIR / 'media'
+   ```
+3. **Mount URLs in `urls.py`**:
+   ```python
+   path('freedec/', include('freedec.urls', namespace='freedec')),
+   ```
+4. **Run migrations**:
+   ```bash
+   poetry run python manage.py migrate
+   ```
+
+---
+
+## 6. Web GUI Usage & Lifecycle
+
+1. **Django Admin Upload**: Staff uploads the document and specifies allowed emails. DEK and user envelopes are created automatically.
+2. **Public Request**: The recipient uploads the `.enc` file and enters their email at `/freedec/`. Receives a 15-minute Magic Link and OTP.
+3. **Burn-After-Read Download**: Clicking the Magic Link or submitting the OTP downloads the original document and immediately deletes the `.enc` file from disk.
+4. **Preserved Admin Download**: Staff can click **`🔓 Original (Admin)`** in Django Admin to download a decrypted copy without destroying the file.
+
+---
+
+## 7. REST API Endpoints
+
+### 1. Request Access (`POST /freedec/public/request-access/`)
+```bash
+curl -X POST http://127.0.0.1:8000/freedec/public/request-access/ \
+  -F "file=@contract.pdf.enc" \
+  -F "email=auditor@corp.com"
+```
+
+### 2. Direct Magic Link Consumption (`GET /freedec/api/public/consume/?t=...`)
+```bash
+curl -OJ "http://127.0.0.1:8000/freedec/api/public/consume/?t=TOKEN_URLSAFE"
+```
+
+### 3. OTP Code Consumption (`POST /freedec/api/public/consume/`)
+```bash
+curl -X POST http://127.0.0.1:8000/freedec/api/public/consume/ \
+  -H "Content-Type: application/json" \
+  -d '{"otp_code": "123456", "email": "auditor@corp.com"}' \
+  --output original_document.pdf
+```
+
+---
+
+## 8. Production MEDIA Configuration (Nginx & Apache)
+
+In production (`DEBUG = False`), web servers like Nginx or Apache must serve `/media/` directly from disk storage with `autoindex off` and script execution blocked.
+
+---
+
+## 9. FAQ & Security Operations
+
+* **What happens if a Magic Link expires?** All tokens strictly expire after 15 minutes. The user must request access again.
+* **Can a consumed file be recovered?** No. Burn-after-read physically deletes the binary file from disk.

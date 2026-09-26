@@ -34,12 +34,13 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING("No hay documentos cifrados registrados en el sistema."))
                 return
 
-            self.stdout.write(self.style.NOTICE(f"\n{'ID':<5} {'NOMBRE ARCHIVO':<30} {'ACCESOS':<9} {'ÚLTIMO ACCESO':<20} {'HASH (SHA-256)'}"))
-            self.stdout.write("-" * 90)
+            self.stdout.write(self.style.NOTICE(f"\n{'ID':<5} {'NOMBRE ARCHIVO':<28} {'ESTADO':<14} {'ACCESOS':<9} {'ÚLTIMO ACCESO':<18} {'HASH (SHA-256)'}"))
+            self.stdout.write("-" * 95)
             for d in docs:
+                status_str = "🔥 Consumido" if d.is_consumed else "🟢 Activo"
                 last_acc = d.last_accessed_at.strftime("%Y-%m-%d %H:%M") if d.last_accessed_at else "Nunca"
                 self.stdout.write(
-                    f"{d.id:<5} {d.original_filename[:28]:<30} {d.access_count:<9} {last_acc:<20} {d.file_hash[:16]}..."
+                    f"{d.id:<5} {d.original_filename[:26]:<28} {status_str:<14} {d.access_count:<9} {last_acc:<18} {d.file_hash[:16]}..."
                 )
             self.stdout.write(self.style.SUCCESS(f"\nTotal: {docs.count()} documento(s) registrado(s).\n"))
             return

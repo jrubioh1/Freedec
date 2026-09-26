@@ -1,19 +1,19 @@
 {% extends "freedec/base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Entrega Segura de Contraseña" %} | Freedec{% endblock %}
+{% block title %}{% trans "Solicitar Acceso al Documento" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🔐</span> {% trans "Entrega Segura de Contraseña" %}
+                <span>⚡</span> {% trans "Solicitud de Acceso Seguro (Magic Link / OTP)" %}
             </h1>
-            <span class="badge badge-emerald">{% trans "Portal de Usuario" %}</span>
+            <span class="badge badge-cyan">{% trans "Prueba de Posesión" %}</span>
         </div>
         <p class="card-subtitle">
-            {% trans "Proporcione el documento correspondiente, su código de acceso y su correo electrónico registrado para recibir la clave de descifrado." %}
+            {% trans "Suba su archivo cifrado (.enc) e introduzca su correo autorizado para recibir un Enlace Mágico de acceso directo y código OTP temporal." %}
         </p>
     </div>
 
@@ -27,15 +27,20 @@
         </div>
 
         <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem;">
-            <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ {% trans "Información de Entrega:" %}</h3>
+            <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ {% trans "Información de Entrega y Caducidad:" %}</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-                {% trans "Por motivos de confidencialidad, la clave nunca se muestra en pantalla. Si el archivo y los datos facilitados corresponden a un registro autorizado, la contraseña habrá sido remitida a su bandeja de entrada." %}
+                {% trans "Por motivos de seguridad Zero-Trust, el enlace de acceso y el código OTP son válidos durante 15 minutos y de un solo uso. Al abrir el enlace o ingresar el código, el archivo en disco será destruido permanentemente (Burn-After-Read)." %}
             </p>
         </div>
 
-        <a href="{% url 'freedec:gui-public-request' %}" class="btn btn-secondary">
-            🔄 {% trans "Realizar Otra Solicitud" %}
-        </a>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            <a href="{% url 'freedec:gui-public-request' %}" class="btn btn-secondary" style="flex: 1;">
+                🔄 {% trans "Realizar Otra Solicitud" %}
+            </a>
+            <a href="{% url 'freedec:gui-consume' %}" class="btn btn-primary" style="flex: 1;">
+                📥 {% trans "Ir a Consumir con Código OTP" %}
+            </a>
+        </div>
 
     {% else %}
         <!-- Formulario Público de Petición -->
@@ -64,19 +69,6 @@
             </div>
 
             <div class="form-group">
-                <label for="{{ form.access_code.id_for_label }}" class="form-label">
-                    {{ form.access_code.label }} *
-                </label>
-                {{ form.access_code }}
-                {% if form.access_code.errors %}
-                    <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
-                        {{ form.access_code.errors.0 }}
-                    </div>
-                {% endif %}
-                <span class="form-help">{{ form.access_code.help_text }}</span>
-            </div>
-
-            <div class="form-group">
                 <label for="{{ form.email.id_for_label }}" class="form-label">
                     {{ form.email.label }} *
                 </label>
@@ -90,7 +82,7 @@
             </div>
 
             <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-                📨 {% trans "Solicitar Contraseña" %}
+                📨 {% trans "Solicitar Enlace de Acceso / OTP" %}
             </button>
         </form>
     {% endif %}

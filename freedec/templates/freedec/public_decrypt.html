@@ -1,26 +1,26 @@
 {% extends "freedec/base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Descifrar Documento (.enc)" %} | Freedec{% endblock %}
+{% block title %}{% trans "Consumir Documento (.enc)" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🔓</span> {% trans "Descifrar Archivo Cifrado" %}
+                <span>🔥</span> {% trans "Consumo y Descarga Segura (Burn-After-Read)" %}
             </h1>
-            <span class="badge badge-emerald">{% trans "Descarga Segura" %}</span>
+            <span class="badge badge-emerald">{% trans "Descarga Única" %}</span>
         </div>
         <p class="card-subtitle">
-            {% blocktrans %}Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le enviamos a su correo para recuperar y descargar el documento original.{% endblocktrans %}
+            {% blocktrans %}Introduzca su <strong>código OTP de 6 dígitos</strong> y correo electrónico recibidos para descifrar y descargar el documento original.{% endblocktrans %}
         </p>
     </div>
 
     {% if error_message %}
         <div class="alert alert-error">
             <div>
-                <strong>⚠️ {% trans "Error en el descifrado:" %}</strong><br>
+                <strong>⚠️ {% trans "Aviso de Seguridad:" %}</strong><br>
                 {{ error_message }}
             </div>
         </div>
@@ -34,44 +34,45 @@
         </div>
     {% endif %}
 
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST">
         {% csrf_token %}
+        {{ form.token }}
 
         <div class="form-group">
-            <label for="{{ form.file.id_for_label }}" class="form-label">
-                {{ form.file.label }} *
+            <label for="{{ form.otp_code.id_for_label }}" class="form-label">
+                {{ form.otp_code.label }} *
             </label>
-            {{ form.file }}
-            {% if form.file.errors %}
+            {{ form.otp_code }}
+            {% if form.otp_code.errors %}
                 <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
-                    {{ form.file.errors.0 }}
+                    {{ form.otp_code.errors.0 }}
                 </div>
             {% endif %}
-            <span class="form-help">{{ form.file.help_text }}</span>
+            <span class="form-help">{{ form.otp_code.help_text }}</span>
         </div>
 
         <div class="form-group">
-            <label for="{{ form.password.id_for_label }}" class="form-label">
-                {{ form.password.label }} *
+            <label for="{{ form.email.id_for_label }}" class="form-label">
+                {{ form.email.label }} *
             </label>
-            {{ form.password }}
-            {% if form.password.errors %}
+            {{ form.email }}
+            {% if form.email.errors %}
                 <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
-                    {{ form.password.errors.0 }}
+                    {{ form.email.errors.0 }}
                 </div>
             {% endif %}
-            <span class="form-help">{{ form.password.help_text }}</span>
+            <span class="form-help">{{ form.email.help_text }}</span>
         </div>
 
         <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-            📥 {% trans "Descifrar y Descargar Archivo Original" %}
+            📥 {% trans "Descifrar, Descargar y Destruir Archivo en Servidor" %}
         </button>
     </form>
 
-    <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
-        <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">ℹ️ {% trans "¿Aún no tienes la contraseña?" %}</h3>
+    <div style="background-color: #0b1329; border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
+        <h3 style="font-size: 0.95rem; color: #fca5a5; margin-bottom: 0.5rem;">⚠️ {% trans "Política Estricta de Destrucción (Burn-After-Read):" %}</h3>
         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-            {% trans "Si tienes el archivo pero no has solicitado la contraseña, ve a" %} <a href="{% url 'freedec:gui-public-request' %}" style="color: var(--accent-cyan); text-decoration: underline;">{% trans "Solicitar Contraseña" %}</a>, {% trans "sube tu archivo e introduce tu código de acceso para recibirla en tu correo electrónico." %}
+            {% trans "En cuanto se complete la descarga, el archivo .enc almacenado en el servidor será eliminado de forma física y definitiva. Ningún otro usuario podrá volver a solicitarlo o descargarlo." %}
         </p>
     </div>
 </div>
