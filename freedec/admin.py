@@ -384,7 +384,7 @@ class DocumentAccessLogInline(admin.TabularInline):
 
     model = DocumentAccessLog
     extra = 0
-    can_delete = True
+    can_delete = False
     readonly_fields = ("created_at", "email", "action", "ip_address", "user_agent")
     fields = ("created_at", "email", "action", "ip_address", "user_agent")
 
@@ -395,8 +395,7 @@ class DocumentAccessLogInline(admin.TabularInline):
         return False
 
     def has_delete_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
-        # Permitir eliminación si el usuario tiene permiso sobre el documento padre para evitar bloqueo de borrado en cascada
-        return request.user.is_staff
+        return False
 
 
 @admin.register(EncryptedDocument)
@@ -428,6 +427,15 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
     search_fields = ("original_filename", "description", "file_hash", "consumed_by")
     inlines = [DocumentAccessLogInline]
     actions = ["admin_audit_download_action"]
+
+    def get_list_display(self, request: HttpRequest) -> tuple:
+        """Filtra columnas de acción según los permisos reales del usuario en Django."""
+        fields = list(self.list_display)
+        if not (request.user.is_superuser or request.user.has_perm("freedec.can_audit_download")):
+            fields = [f for f in fields if f != "audit_download_button"]
+        if not self.has_delete_permission(request):
+            fields = [f for f in fields if f != "delete_action_button"]
+        return tuple(fields)
 
     def get_form(self, request: HttpRequest, obj: Optional[EncryptedDocument] = None, **kwargs: Any) -> Any:
         if obj is None:
@@ -636,8 +644,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         super().delete_queryset(request, queryset)
 
     def has_delete_permission(self, request: HttpRequest, obj: Optional[EncryptedDocument] = None) -> bool:
-        """Permite borrar documentos al staff con permisos de eliminación o superusuarios."""
-        return request.user.is_superuser or request.user.has_perm("freedec.delete_encrypteddocument")
+        return super().has_delete_permission(request, obj)
 
     def get_urls(self) -> List[Any]:
         urls = super().get_urls()
@@ -875,8 +882,7 @@ class AccessVerificationTokenAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
-        # Permitir eliminación a personal staff para que la eliminación en cascada de EncryptedDocument funcione
-        return request.user.is_staff
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(DocumentAccessLog)
@@ -893,5 +899,4 @@ class DocumentAccessLogAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
-        # Permitir eliminación a personal staff para que la eliminación en cascada de EncryptedDocument funcione
-        return request.user.is_staff
+        return super().has_delete_permission(request, obj)

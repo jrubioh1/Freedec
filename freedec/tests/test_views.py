@@ -338,5 +338,103 @@ class FreedecViewsSecurityTestCase(TestCase):
         self.document.refresh_from_db()
         self.assertEqual(self.document.description, "Nueva descripción editada por el administrador")
 
+    def test_audit_log_view_only_user_cannot_delete(self):
+        """Un usuario staff con permiso exclusivo de 'view' sobre registros de auditoría no puede eliminarlos."""
+        view_only_user = User.objects.create_user(
+            username="view_only_auditor",
+            email="auditor_view@freedec.local",
+            password="ViewPassword#2026",
+            is_staff=True,
+        )
+        perm = Permission.objects.get(codename="view_documentaccesslog")
+        view_only_user.user_permissions.add(perm)
+
+        # Crear un registro de auditoría
+        request_document_access(self.document.file_hash, self.allowed_email)
+        log = DocumentAccessLog.objects.first()
+        self.assertIsNotNone(log)
+
+        self.client.force_login(view_only_user)
+        # 1. Changelist de logs debe cargar pero sin la acción de eliminación
+        resp = self.client.get(reverse("admin:freedec_documentaccesslog_changelist"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "delete_selected")
+
+        # 2. Intento de eliminación directa debe responder 403 Forbidden
+        delete_url = reverse("admin:freedec_documentaccesslog_delete", args=[log.pk])
+        del_resp = self.client.post(delete_url, {"post": "yes"})
+        self.assertEqual(del_resp.status_code, 403)
+        self.assertTrue(DocumentAccessLog.objects.filter(pk=log.pk).exists())
+
+    def test_encrypted_document_view_only_user_does_not_see_delete_button_and_cannot_delete(self):
+        """Un usuario con permiso exclusivo de lectura sobre EncryptedDocument no ve el botón de eliminar y recibe 403 si intenta borrar."""
+        doc_viewer = User.objects.create_user(
+            username="doc_viewer_user",
+            email="doc_viewer@freedec.local",
+            password="DocViewerPassword#2026",
+            is_staff=True,
+        )
+        perm = Permission.objects.get(codename="view_encrypteddocument")
+        doc_viewer.user_permissions.add(perm)
+
+        self.client.force_login(doc_viewer)
+        # 1. En el changelist no debe mostrarse el botón de papelera
+        resp = self.client.get(reverse("admin:freedec_encrypteddocument_changelist"))
+        self.assertEqual(resp.status_code, 200)
+        delete_url = reverse("admin:freedec_encrypteddocument_delete", args=[self.document.pk])
+        self.assertNotContains(resp, f'href="{delete_url}"')
+
+        # 2. Intento de borrado directo responde 403 Forbidden
+        del_resp = self.client.post(delete_url, {"post": "yes"})
+        self.assertEqual(del_resp.status_code, 403)
+        self.assertTrue(EncryptedDocument.objects.filter(pk=self.document.pk).exists())
+
+    def test_encrypted_document_delete_blocked_if_user_lacks_permission_on_related_logs(self):
+        """Si el usuario tiene permiso para borrar documentos pero no para sus registros relacionados, Django bloquea el borrado."""
+        partial_deleter = User.objects.create_user(
+            username="partial_deleter_user",
+            email="partial@freedec.local",
+            password="PartialPassword#2026",
+            is_staff=True,
+        )
+        perm_delete_doc = Permission.objects.get(codename="delete_encrypteddocument")
+        perm_view_doc = Permission.objects.get(codename="view_encrypteddocument")
+        partial_deleter.user_permissions.add(perm_delete_doc, perm_view_doc)
+
+        # Crear log asociado
+        request_document_access(self.document.file_hash, self.allowed_email)
+        self.assertTrue(DocumentAccessLog.objects.filter(document_id=self.document.pk).exists())
+
+        self.client.force_login(partial_deleter)
+        delete_url = reverse("admin:freedec_encrypteddocument_delete", args=[self.document.pk])
+        # Django debe bloquear la eliminación con 403 porque no tiene delete_documentaccesslog ni delete_accessverificationtoken
+        resp = self.client.post(delete_url, {"post": "yes"})
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(EncryptedDocument.objects.filter(pk=self.document.pk).exists())
+
+    def test_encrypted_document_cascade_delete_allowed_for_document_deleter(self):
+        """Un usuario con todos los permisos requeridos sobre los modelos en Django puede borrar el documento y sus dependencias."""
+        doc_deleter = User.objects.create_user(
+            username="doc_deleter_user",
+            email="doc_deleter@freedec.local",
+            password="DocDeleterPassword#2026",
+            is_staff=True,
+        )
+        perm_delete_doc = Permission.objects.get(codename="delete_encrypteddocument")
+        perm_view_doc = Permission.objects.get(codename="view_encrypteddocument")
+        perm_delete_log = Permission.objects.get(codename="delete_documentaccesslog")
+        perm_delete_tok = Permission.objects.get(codename="delete_accessverificationtoken")
+        doc_deleter.user_permissions.add(perm_delete_doc, perm_view_doc, perm_delete_log, perm_delete_tok)
+
+        request_document_access(self.document.file_hash, self.allowed_email)
+        self.assertTrue(DocumentAccessLog.objects.filter(document_id=self.document.pk).exists())
+
+        self.client.force_login(doc_deleter)
+        delete_url = reverse("admin:freedec_encrypteddocument_delete", args=[self.document.pk])
+        resp = self.client.post(delete_url, {"post": "yes"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(EncryptedDocument.objects.filter(pk=self.document.pk).exists())
+        self.assertEqual(DocumentAccessLog.objects.filter(document_id=self.document.pk).count(), 0)
+
 
 
