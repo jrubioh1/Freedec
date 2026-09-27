@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import io
 import logging
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from django.conf import settings
 from django.contrib import messages
