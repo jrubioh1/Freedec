@@ -123,6 +123,12 @@ poetry run python scripts/demo_flow.py
   * **Verificación Dinámica y Reactivación**: Cálculo de SHA-256 en cliente con WebCrypto API; detecta si el documento ya existe y si hay destinatarios previos con canje pendiente, ofreciendo el botón `➕ Volver a añadir pendientes a la lista de correos` para reactivarlo sin colisiones y permitiendo actualizar la descripción.
   * **Eliminación y Trituración Directa (🗑️)**: Botón de borrado directo con permisos en cascada sobre tokens y registros de auditoría, ejecutando la destrucción física en disco (`shred_and_delete_file`).
   * **Descarga de Auditoría Administrativa**: Botón y acción que permite al personal staff con permiso `can_audit_download` descargar una copia descifrada para fines legales o de auditoría mientras el documento **no haya sido consumido**, **sin destruir el archivo ni marcarlo como consumido**, registrando `admin_descarga_preservada`.
+  * **Control de Acceso y Permisos Estrictos de Django**:
+    * Toda la autorización de acciones y capacidades de borrado recae estrictamente en el sistema de permisos de Django (`django.contrib.auth.models.Permission`).
+    * La condición de `is_staff` solo autoriza el acceso al panel `/admin/`; no confiere privilegios implícitos ni bypasses sobre los modelos.
+    * La columna de borrado (`delete_action_button`) y el botón de descarga administrativa (`audit_download_button`) se filtran dinámicamente según los permisos del usuario (`freedec.delete_encrypteddocument`, `freedec.can_audit_download`).
+    * Inmutabilidad estricta de auditoría: los registros de acceso (`DocumentAccessLog`) no admiten creación ni modificación manual desde el admin (`has_add_permission=False`, `has_change_permission=False`) y las filas inline no pueden eliminarse individualmente (`can_delete=False`).
+    * El borrado de documentos respeta la cascada nativa de Django: si un usuario carece de permisos para borrar los registros dependientes (`DocumentAccessLog` o `AccessVerificationToken`), la operación es bloqueada automáticamente con `403 Forbidden`.
   * Inline de auditoría legal de solo lectura (`DocumentAccessLogInline`).
 
 ---
@@ -248,9 +254,26 @@ poetry run python scripts/demo_flow.py
 
 ## 4. Django Admin Management
 
-* Model `EncryptedDocumentAdmin` with no password fields.
-* Granular permission `can_audit_download` for preserved administrative audit inspection.
-* Read-only legal access logs inline (`DocumentAccessLogInline`).
+* **`EncryptedDocumentAdmin` Dashboard**:
+  * Columns: `original_filename`, `file_hash`, `burn_policy`, `consumption_status_badge`, `audit_download_button`, `corporate_email_button`, `delete_action_button`.
+  * **Zero Passwords**: No field displays or stores human-readable passwords.
+  * **Editable Document Description**: Pre-filled default corporate description, editable upon upload, document modification, and during reactivation. Embedded automatically into all email notifications (OTP verification, redemption notices, post-consumption warnings).
+  * **Corporate Email Template (📋 / 📨)**:
+    * Changelist action button (`📋 Copiar texto correo`) for one-click clipboard copying of the official notification text with filename, description, SHA-256 hash, and direct access link.
+    * Document detail panel featuring a preformatted template viewer, copy button, and direct `mailto:` link.
+  * **Destruction Policy Selector (`burn_policy`)**:
+    * `⚡ 1st Access` (*FIRST_ACCESS*): Immediate physical shredding and removal upon the first successful redemption.
+    * `👥 All Recipients` (*ALL_RECIPIENTS*): Each authorized recipient receives an individual download; the file remains on disk until all recipients have redeemed their copy.
+  * **Dynamic Client-Side Verification & Reactivation**: Computes SHA-256 in the browser via WebCrypto API; detects if the document already exists and if prior recipients have pending access, providing a `➕ Add pending to recipient list` button to reactivate without hash collisions while allowing description updates.
+  * **Direct Shredding & Deletion (🗑️)**: Direct delete button enforcing cascade permissions on tokens and audit logs, performing physical overwriting (`shred_and_delete_file`).
+  * **Administrative Audit Inspection**: Action and button allowing staff users with explicit `freedec.can_audit_download` permission to download a decrypted copy for legal compliance while the document **has not been consumed**, **without destroying the file or marking it as consumed**, logging `admin_descarga_preservada`.
+  * **Strict Django Model Permissions**:
+    * All authorization and delete actions strictly rely on Django's model permission system (`django.contrib.auth.models.Permission`).
+    * Being `is_staff` only grants access to `/admin/`; it never bypasses model-level authorization.
+    * Action buttons (`delete_action_button`, `audit_download_button`) are conditionally displayed based on active user permissions (`freedec.delete_encrypteddocument`, `freedec.can_audit_download`).
+    * Audit log immutability: `DocumentAccessLog` records cannot be added or altered manually (`has_add_permission=False`, `has_change_permission=False`), and inline rows cannot be deleted individually (`can_delete=False`).
+    * Cascade deletion adheres to Django's native permission checks: if a user lacks delete permission on related logs or tokens, deletion is denied with `403 Forbidden`.
+  * Read-only legal access logs inline (`DocumentAccessLogInline`).
 
 ---
 
@@ -266,3 +289,19 @@ poetry run python scripts/demo_flow.py
 * `poetry run python manage.py delete_document --list`
 * `poetry run python manage.py decrypt_document <hash> --otp 123456 --email user@corp.com`
 * `poetry run python manage.py decrypt_document <hash> --admin --output audit.pdf`
+
+---
+
+## 7. Security Configuration in settings.py
+
+```python
+# Mandatory Fernet master key (32 bytes base64 url-safe)
+# Generated via cryptography.fernet.Fernet.generate_key().decode()
+FREEDEC_FERNET_KEY = "YOUR_FERNET_KEY_BASE64_URL_SAFE_32_BYTES="
+
+# Maximum allowed file upload size (default 50 MB)
+FREEDEC_MAX_FILE_SIZE = 50 * 1024 * 1024
+```
+
+> **Startup validation:** `FreedecConfig.ready()` halts Django startup with `ImproperlyConfigured` if `FREEDEC_FERNET_KEY` is missing or invalid.
+
