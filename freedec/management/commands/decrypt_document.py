@@ -1,70 +1,57 @@
 import hashlib
 import sys
 from pathlib import Path
+from typing import Any
 from django.core.management.base import BaseCommand
 
 from freedec.models import EncryptedDocument
-from freedec.services import DocumentManagementService
+from freedec.services import admin_decrypt_document, consume_document_with_otp
 
 
 class Command(BaseCommand):
-    help = "Descifra un archivo .enc de Freedec utilizando un token, código OTP o credencial administrativa."
+    help = "Descifra un documento confidencial de Freedec utilizando un código OTP o auditoría administrativa."
 
-    def add_arguments(self, parser):
-        parser.add_argument("encrypted_file", type=str, help="Ruta al archivo .enc que se desea descifrar.")
-        parser.add_argument("--token", "-t", type=str, required=False, help="Token de enlace mágico recibido por correo.")
+    def add_arguments(self, parser: Any) -> None:
+        parser.add_argument("target", type=str, help="Hash SHA-256 (64 hex) o ruta al archivo .enc.")
         parser.add_argument("--otp", type=str, required=False, help="Código OTP de 6 dígitos recibido por correo.")
         parser.add_argument("--email", "-e", type=str, required=False, help="Correo electrónico autorizado (requerido con --otp).")
-        parser.add_argument("--admin", action="store_true", help="Descifrado administrativo preservado usando la clave de servidor (Audit Bypass).")
-        parser.add_argument("--password", "-p", type=str, required=False, help="Alias de compatibilidad para token u OTP.")
-        parser.add_argument("--output", "-o", type=str, required=False, help="Ruta de destino del archivo descifrado (opcional).")
+        parser.add_argument("--admin", action="store_true", help="Descarga de auditoría administrativa preservada (Audit Bypass).")
+        parser.add_argument("--output", "-o", type=str, required=False, help="Ruta de destino del archivo descifrado.")
 
-    def handle(self, *args, **options):
-        enc_path = Path(options["encrypted_file"])
-        token = options.get("token")
+    def handle(self, *args: Any, **options: Any) -> None:
+        target = options["target"].strip()
         otp = options.get("otp")
         email = options.get("email")
         is_admin = options.get("admin")
-        password = options.get("password")
         output_arg = options.get("output")
 
-        if not enc_path.exists():
-            self.stdout.write(self.style.ERROR(f"Error: El archivo '{enc_path}' no existe."))
+        # Buscar documento por hash SHA-256 o por archivo
+        doc = EncryptedDocument.objects.filter(file_hash__iexact=target).first()
+        if not doc:
+            p = Path(target)
+            if p.exists():
+                doc = EncryptedDocument.objects.filter(original_filename__icontains=p.stem).first()
+
+        if not doc:
+            self.stdout.write(self.style.ERROR(f"❌ No se encontró ningún documento registrado que coincida con '{target}'."))
             sys.exit(1)
 
-        service = DocumentManagementService()
-
         if is_admin:
-            self.stdout.write(self.style.NOTICE(f"Ejecutando descifrado administrativo preservado para '{enc_path}'..."))
-            enc_bytes = enc_path.read_bytes()
-            enc_hash = hashlib.sha256(enc_bytes).hexdigest()
-            doc = EncryptedDocument.objects.filter(encrypted_file_hash=enc_hash).first()
-            if not doc:
-                # Intentar por nombre original
-                doc = EncryptedDocument.objects.filter(original_filename__icontains=enc_path.stem).first()
-
-            if not doc:
-                self.stdout.write(self.style.ERROR("❌ No se encontró ningún documento registrado que coincida con este archivo cifrado."))
-                sys.exit(1)
-
-            success, decrypted_bytes, suggested_filename, mimetype, message = service.admin_decrypt_document(
+            self.stdout.write(self.style.NOTICE(f"Ejecutando descifrado de auditoría administrativa para '{doc.original_filename}'..."))
+            success, decrypted_bytes, filename, message = admin_decrypt_document(
                 document=doc,
                 admin_user="cli_admin",
             )
         else:
-            # Compatibilidad si pasaron --password
-            token_str = token or (password if password and len(password.strip()) > 6 else None)
-            otp_code = otp or (password if password and len(password.strip()) == 6 else None)
-
-            if not token_str and not otp_code:
-                self.stdout.write(self.style.ERROR("Error: Debe especificar --token, --otp (con --email) o --admin."))
+            if not otp or not email:
+                self.stdout.write(self.style.ERROR("Error: Debe especificar --otp y --email para canjear el documento, o usar --admin."))
                 sys.exit(1)
 
-            self.stdout.write(self.style.NOTICE(f"Consumiendo y descifrando archivo '{enc_path}' (Burn-After-Read)..."))
-            success, decrypted_bytes, suggested_filename, mimetype, message = service.consume_and_burn_document(
-                token_str=token_str,
-                otp_code=otp_code,
+            self.stdout.write(self.style.NOTICE(f"Consumiendo y triturando documento '{doc.original_filename}' (Burn-After-Read)..."))
+            success, decrypted_bytes, filename, message = consume_document_with_otp(
+                file_hash=doc.file_hash,
                 email=email,
+                entered_otp=otp,
             )
 
         if not success:
@@ -74,9 +61,9 @@ class Command(BaseCommand):
         if output_arg:
             out_path = Path(output_arg)
         else:
-            out_path = enc_path.parent / suggested_filename
+            out_path = Path.cwd() / filename
 
         out_path.write_bytes(decrypted_bytes)
-        self.stdout.write(self.style.SUCCESS(f"\n✅ ¡Documento descifrado exitosamente!"))
+        self.stdout.write(self.style.SUCCESS("\n✅ ¡Documento descifrado exitosamente!"))
         self.stdout.write(self.style.SUCCESS(f"   Archivo guardado en: {out_path.resolve()}"))
-        self.stdout.write(f"   Tamaño: {len(decrypted_bytes):,} bytes | MIME: {mimetype}\n")
+        self.stdout.write(f"   Tamaño: {len(decrypted_bytes):,} bytes\n")

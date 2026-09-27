@@ -4,19 +4,28 @@ import os
 import shutil
 import tempfile
 import zipfile
+from unittest.mock import patch
+
 from cryptography.fernet import Fernet
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from freedec.apps import FreedecConfig
 from freedec.models import AccessVerificationToken, DocumentAccessLog, EncryptedDocument
 from freedec.services import (
-    DocumentManagementService,
-    FernetCryptoService,
+    admin_decrypt_document,
     calculate_file_sha256,
+    consume_document_with_otp,
+    reactivate_document,
+    request_document_access,
+    shred_and_delete_file,
+    upload_and_encrypt_document,
 )
 from freedec.validators import validate_document_file, validate_safe_email
 
@@ -34,7 +43,6 @@ MINIMAL_TEST_PDF = (
 
 
 def create_minimal_odt_bytes() -> bytes:
-    """Crea en memoria una estructura binaria válida de LibreOffice Writer (.odt)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("mimetype", "application/vnd.oasis.opendocument.text")
@@ -43,7 +51,6 @@ def create_minimal_odt_bytes() -> bytes:
 
 
 def create_minimal_docx_bytes() -> bytes:
-    """Crea en memoria una estructura binaria válida de Microsoft Word (.docx)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types></Types>")
@@ -51,9 +58,16 @@ def create_minimal_docx_bytes() -> bytes:
     return buf.getvalue()
 
 
-@override_settings(FREEDEC_FERNET_KEY=TEST_FERNET_KEY, TESTING=True)
-class FreedecServicesSecurityTestCase(TestCase):
-    """Pruebas unitarias de ciberseguridad, criptografía DEK/KEK y servicios de Freedec."""
+@override_settings(FREEDEC_FERNET_KEY=TEST_FERNET_KEY)
+class FreedecSecurityAndServicesTestCase(TestCase):
+    """
+    Suite exhaustiva de pruebas unitarias de Ciberseguridad para Freedec:
+    - Validación de firmas binarias (Magic Bytes).
+    - Cifrado de sobre (Envelope Encryption con DEK).
+    - Verificación desatendida y OTP en tiempo real.
+    - Destrucción segura física (Zeroization / Shredding).
+    - Auditoría legal y protección contra Timing Attacks.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -69,737 +83,471 @@ class FreedecServicesSecurityTestCase(TestCase):
         super().tearDownClass()
 
     def setUp(self):
-        self.crypto_service = FernetCryptoService(key=TEST_FERNET_KEY)
-        self.doc_service = DocumentManagementService(crypto_service=self.crypto_service)
         self.test_content = MINIMAL_TEST_PDF
-        self.expected_sha256 = hashlib.sha256(self.test_content).hexdigest()
+        self.expected_sha256 = hashlib.sha256(self.test_content).hexdigest().lower()
+        self.allowed_email = "destinatario@seguro.gob.es"
+        self.other_email = "atacante@malicioso.com"
+
         self.admin_user = User.objects.create_superuser(
-            username="admin_test",
+            username="admin_auditor",
             email="admin@freedec.local",
             password="StrongPassword#2026",
         )
 
     # --------------------------------------------------------------------------
-    # VALIDACIONES DE FORMATO Y CONTENIDO (OWASP A03 / A08)
+    # 1. VALIDACIÓN EN ARRANQUE (freedec/apps.py)
     # --------------------------------------------------------------------------
-    def test_format_validation_pdf(self):
-        """Un archivo PDF legítimo debe ser aceptado."""
-        pdf_file = SimpleUploadedFile("document.pdf", self.test_content)
-        validated = validate_document_file(pdf_file)
-        self.assertIsNotNone(validated)
+    def test_startup_validation_valid_key(self):
+        """Valida que una clave Fernet url-safe válida de 32 bytes pase la verificación."""
+        import freedec
+        config = FreedecConfig("freedec", freedec)
+        with override_settings(FREEDEC_FERNET_KEY=Fernet.generate_key().decode()):
+            # No debe lanzar excepción
+            config.ready()
 
-    def test_format_validation_libreoffice_odt(self):
-        """Un archivo LibreOffice .odt válido con estructura ODF debe ser aceptado."""
-        odt_bytes = create_minimal_odt_bytes()
-        odt_file = SimpleUploadedFile("informe.odt", odt_bytes)
-        validated = validate_document_file(odt_file)
-        self.assertIsNotNone(validated)
+    def test_startup_validation_missing_key(self):
+        """Si falta FREEDEC_FERNET_KEY, debe lanzar ImproperlyConfigured."""
+        import freedec
+        config = FreedecConfig("freedec", freedec)
+        with override_settings(FREEDEC_FERNET_KEY=None):
+            with self.assertRaises(ImproperlyConfigured):
+                config.ready()
 
-    def test_format_validation_msoffice_docx(self):
-        """Un archivo Microsoft Office .docx válido con OpenXML debe ser aceptado."""
-        docx_bytes = create_minimal_docx_bytes()
-        docx_file = SimpleUploadedFile("contrato.docx", docx_bytes)
-        validated = validate_document_file(docx_file)
-        self.assertIsNotNone(validated)
+    def test_startup_validation_invalid_length_key(self):
+        """Si la clave no decodifica a 32 bytes, debe lanzar ImproperlyConfigured."""
+        import freedec
+        config = FreedecConfig("freedec", freedec)
+        with override_settings(FREEDEC_FERNET_KEY="invalid-short-key"):
+            with self.assertRaises(ImproperlyConfigured):
+                config.ready()
 
-    def test_format_validation_reject_unauthorized_extensions(self):
-        """Formatos no autorizados (.exe, .txt, .sh) deben ser rechazados inmediatamente."""
-        exe_file = SimpleUploadedFile("malware.exe", b"MZ\x90\x00BinaryData")
+    # --------------------------------------------------------------------------
+    # 2. VALIDACIONES DE ARCHIVO Y EMAIL (OWASP A03 / A08)
+    # --------------------------------------------------------------------------
+    def test_format_validation_pdf_and_office(self):
+        """Formatos válidos PDF, ODT y DOCX deben ser admitidos."""
+        pdf_file = SimpleUploadedFile("expediente.pdf", self.test_content)
+        self.assertIsNotNone(validate_document_file(pdf_file))
+
+        odt_file = SimpleUploadedFile("expediente.odt", create_minimal_odt_bytes())
+        self.assertIsNotNone(validate_document_file(odt_file))
+
+        docx_file = SimpleUploadedFile("expediente.docx", create_minimal_docx_bytes())
+        self.assertIsNotNone(validate_document_file(docx_file))
+
+    def test_format_validation_spoofed_executable_rejected(self):
+        """Un ejecutable (.exe / .sh) camuflado como PDF debe ser bloqueado por Magic Bytes."""
+        fake_pdf = SimpleUploadedFile("malware.pdf", b"MZ\x90\x00\x03\x00\x00\x00malicious binary content")
         with self.assertRaises(ValidationError):
-            validate_document_file(exe_file)
+            validate_document_file(fake_pdf)
 
-        txt_file = SimpleUploadedFile("documento.txt", b"Texto plano no permitido")
+    def test_safe_email_crlf_injection(self):
+        """Intento de inyección CRLF en cabecera de correo debe ser bloqueado."""
         with self.assertRaises(ValidationError):
-            validate_document_file(txt_file)
-
-    def test_format_validation_reject_spoofed_magic_bytes(self):
-        """Un archivo renombrado a .pdf pero con contenido no-PDF debe ser detectado y rechazado."""
-        spoofed_file = SimpleUploadedFile("falso.pdf", b"Contenido corrupto o malicioso sin cabecera PDF")
-        with self.assertRaises(ValidationError):
-            validate_document_file(spoofed_file)
-
-    def test_email_validation_anti_crlf_injection(self):
-        """Intento de inyección de cabeceras CRLF en correo debe ser bloqueado."""
-        valid_email = "usuario@empresa.com"
-        self.assertEqual(validate_safe_email(valid_email), "usuario@empresa.com")
-
-        malicious_email = "victima@empresa.com\r\nBcc: atacante@evil.com"
-        with self.assertRaises(ValidationError):
-            validate_safe_email(malicious_email)
-
-    def test_calculate_file_sha256_streaming(self):
-        """Verifica que el cálculo SHA-256 sea exacto y preserve el puntero del stream."""
-        file_obj = io.BytesIO(self.test_content)
-        calculated = calculate_file_sha256(file_obj)
-        self.assertEqual(calculated, self.expected_sha256)
-        self.assertEqual(file_obj.read(), self.test_content)
+            validate_safe_email("user@corp.com\r\nBcc: spy@evil.org")
 
     # --------------------------------------------------------------------------
-    # CRIPTOGRAFÍA SIMÉTRICA FERNET Y RESISTENCIA A MANIPULACIÓN
+    # 3. REGISTRO Y CIFRADO DESATENDIDO (upload_and_encrypt_document)
     # --------------------------------------------------------------------------
-    def test_fernet_crypto_bytes_and_string(self):
-        """Verifica el cifrado simétrico y descifrado de bytes y strings."""
-        encrypted_bytes = self.crypto_service.encrypt_bytes(self.test_content)
-        self.assertNotEqual(encrypted_bytes, self.test_content)
-        decrypted_bytes = self.crypto_service.decrypt_bytes(encrypted_bytes)
-        self.assertEqual(decrypted_bytes, self.test_content)
-
-        secret_text = "MasterPassword#2026_Secure!"
-        encrypted_str = self.crypto_service.encrypt_string(secret_text)
-        decrypted_str = self.crypto_service.decrypt_string(encrypted_str)
-        self.assertEqual(decrypted_str, secret_text)
-
-    def test_fernet_tamper_resistance(self):
-        """Verifica que modificar un solo bit del contenido cifrado sea detectado como alteración."""
-        encrypted_bytes = bytearray(self.crypto_service.encrypt_bytes(self.test_content))
-        encrypted_bytes[20] ^= 0xFF
-        with self.assertRaises(ValueError):
-            self.crypto_service.decrypt_bytes(bytes(encrypted_bytes))
-
-    # --------------------------------------------------------------------------
-    # ARQUITECTURA CRIPTOGRÁFICA DEK + SOBRES DIGITALES (user_envelopes)
-    # --------------------------------------------------------------------------
-    def test_upload_and_encrypt_document_dek_architecture(self):
-        """
-        Verifica la arquitectura DEK multi-usuario:
-        - Cifrado único con DEK.
-        - Generación de sobres digitales por cada correo en allowed_emails.
-        - Capacidad de descifrado administrativo con settings.FREEDEC_FERNET_KEY.
-        - Estado inicial del ciclo de vida (is_consumed=False).
-        """
-        uploaded = SimpleUploadedFile("secret.pdf", self.test_content)
-        emails = ["Alice@Example.COM", "  bob@domain.org "]
-
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=emails,
+    def test_upload_and_encrypt_document_success(self):
+        """El documento original debe cifrarse con una DEK única y guardarse en disco."""
+        upload_file = SimpleUploadedFile("contrato.pdf", self.test_content)
+        doc = upload_and_encrypt_document(
+            original_file=upload_file,
+            allowed_emails=[self.allowed_email, "OTRO@SEGURO.GOB.ES "],
         )
 
         self.assertEqual(doc.file_hash, self.expected_sha256)
-        self.assertTrue(doc.encrypted_file_hash)
+        self.assertEqual(doc.original_filename, "contrato.pdf")
         self.assertFalse(doc.is_consumed)
-        self.assertIsNone(doc.consumed_by)
-        self.assertIsNone(doc.consumed_at)
+        self.assertIn(self.allowed_email, doc.allowed_emails)
+        self.assertIn("otro@seguro.gob.es", doc.allowed_emails)
 
-        # Verificar normalización de emails
-        self.assertIn("alice@example.com", doc.allowed_emails)
-        self.assertIn("bob@domain.org", doc.allowed_emails)
-
-        # Verificar sobres digitales para cada usuario
-        self.assertIn("alice@example.com", doc.user_envelopes)
-        self.assertIn("bob@domain.org", doc.user_envelopes)
-
-        # Desempaquetar el sobre de Alice y verificar que recupera la DEK y el contenido original
-        alice_env = doc.user_envelopes["alice@example.com"]
-        alice_user_secret = self.crypto_service.decrypt_bytes(alice_env["encrypted_user_secret"].encode("utf-8"))
-        alice_dek = Fernet(alice_user_secret).decrypt(alice_env["encrypted_dek"].encode("utf-8"))
-
+        # El contenido en disco debe estar cifrado (no contener la firma PDF en claro)
         doc.encrypted_file.seek(0)
-        enc_bytes = doc.encrypted_file.read()
-        recovered_original = Fernet(alice_dek).decrypt(enc_bytes)
-        self.assertEqual(recovered_original, self.test_content)
+        cipher_bytes = doc.encrypted_file.read()
+        self.assertNotEqual(cipher_bytes, self.test_content)
+        self.assertNotIn(b"%PDF-1.4", cipher_bytes)
 
-        # Desempaquetar la clave administrativa (admin_encrypted_dek)
-        admin_dek = self.crypto_service.decrypt_bytes(doc.admin_encrypted_dek.encode("utf-8"))
-        self.assertEqual(admin_dek, alice_dek)
+        # La DEK interna debe estar cifrada con FREEDEC_FERNET_KEY
+        server_fernet = Fernet(TEST_FERNET_KEY.encode())
+        decrypted_dek = server_fernet.decrypt(doc.encrypted_dek.encode())
+        self.assertEqual(len(decrypted_dek), 44)  # Clave Fernet base64 url-safe
 
-    def test_upload_same_file_multiple_times_allowed(self):
-        """
-        Verifica que subir dos o más veces el mismo archivo está permitido,
-        generando registros independientes con DEKs distintas y sobres propios.
-        """
-        uploaded1 = SimpleUploadedFile("contrato.pdf", self.test_content)
-        doc1, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded1,
-            allowed_emails=["alice@empresa.com"],
-        )
+    def test_upload_duplicate_hash_rejected(self):
+        """No debe permitirse registrar dos veces un archivo con el mismo hash SHA-256."""
+        file1 = SimpleUploadedFile("doc1.pdf", self.test_content)
+        upload_and_encrypt_document(file1, [self.allowed_email])
 
-        uploaded2 = SimpleUploadedFile("contrato.pdf", self.test_content)
-        doc2, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded2,
-            allowed_emails=["bob@empresa.com"],
-        )
-
-        self.assertNotEqual(doc1.pk, doc2.pk)
-        self.assertEqual(doc1.file_hash, doc2.file_hash)
-        self.assertNotEqual(doc1.encrypted_file_hash, doc2.encrypted_file_hash)
-        self.assertNotEqual(doc1.admin_encrypted_dek, doc2.admin_encrypted_dek)
-        self.assertIn("alice@empresa.com", doc1.user_envelopes)
-        self.assertIn("bob@empresa.com", doc2.user_envelopes)
+        file2 = SimpleUploadedFile("doc2.pdf", self.test_content)
+        with self.assertRaises(ValidationError):
+            upload_and_encrypt_document(file2, [self.allowed_email])
 
     # --------------------------------------------------------------------------
-    # FLUJO DE SOLICITUD DE ACCESO (MAGIC LINK / OTP)
+    # 4. SOLICITUD DE ACCESO Y OTP (request_document_access)
     # --------------------------------------------------------------------------
-    def test_request_document_access_success_with_original_file(self):
-        """Verifica que subir el documento original genera un token de 15 min y envía Magic Link + OTP."""
-        uploaded = SimpleUploadedFile("secret.pdf", self.test_content)
-        emails = ["recipient@security.org"]
+    def test_request_access_authorized_email_sends_otp(self):
+        """Un correo autorizado recibe un código OTP numérico de 6 dígitos."""
+        upload_file = SimpleUploadedFile("secreto.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
 
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=emails,
-        )
-
-        user_copy = SimpleUploadedFile("local_copy.pdf", self.test_content)
-        success, message = self.doc_service.request_document_access(
-            uploaded_file=user_copy,
-            recipient_email="Recipient@Security.ORG",
-            client_ip="192.168.1.10",
+        mail.outbox.clear()
+        success, message = request_document_access(
+            file_hash=doc.file_hash,
+            email=self.allowed_email,
+            client_ip="192.168.1.100",
+            user_agent="Mozilla/5.0 Test",
+            base_url="https://freedec.example.com",
         )
 
         self.assertTrue(success)
         self.assertEqual(len(mail.outbox), 1)
         sent_email = mail.outbox[0]
-        self.assertIn("recipient@security.org", sent_email.to)
-        self.assertIn("secret.pdf", sent_email.subject)
-        self.assertIn("/freedec/consumir/?t=", sent_email.body)
-        self.assertIn("CÓDIGO OTP:", sent_email.body)
+        self.assertIn(self.allowed_email, sent_email.to)
 
-        # Verificar creación del token en BD
-        token_obj = AccessVerificationToken.objects.filter(document=doc, email="recipient@security.org").first()
-        self.assertIsNotNone(token_obj)
-        self.assertFalse(token_obj.is_used)
-        self.assertEqual(len(token_obj.otp_code), 6)
-        self.assertTrue(token_obj.otp_code.isdigit())
-        self.assertTrue(token_obj.is_valid())
+        # Buscar el token generado
+        token = AccessVerificationToken.objects.filter(document=doc, email=self.allowed_email).first()
+        self.assertIsNotNone(token)
+        self.assertTrue(token.is_valid())
+        self.assertEqual(len(token.otp_code), 6)
+        self.assertTrue(token.otp_code.isdigit())
+        self.assertIn(token.otp_code, sent_email.body)
 
-        # Verificar auditoría
-        log = DocumentAccessLog.objects.filter(document=doc, action="solicitud_acceso").first()
+        # Auditoría legal: debe registrarse action='otp_enviado'
+        log = DocumentAccessLog.objects.filter(document=doc, action=DocumentAccessLog.Action.OTP_ENVIADO).first()
         self.assertIsNotNone(log)
-        self.assertEqual(log.email, "recipient@security.org")
-        self.assertEqual(log.ip_address, "192.168.1.10")
+        self.assertEqual(log.email, self.allowed_email)
+        self.assertEqual(log.ip_address, "192.168.1.100")
 
-    def test_request_document_access_success_with_enc_file(self):
-        """Verifica que un usuario pueda subir el archivo .enc para solicitar acceso."""
-        uploaded = SimpleUploadedFile("secret_enc.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["client@company.com"],
+    def test_request_access_unauthorized_email_anti_enumeration(self):
+        """Un correo no autorizado recibe respuesta genérica neutra sin emitir OTP."""
+        upload_file = SimpleUploadedFile("secreto.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
+
+        mail.outbox.clear()
+        success, message = request_document_access(
+            file_hash=doc.file_hash,
+            email=self.other_email,
+            client_ip="192.168.1.101",
         )
 
-        doc.encrypted_file.seek(0)
-        enc_file_obj = SimpleUploadedFile("distributed.enc", doc.encrypted_file.read())
-
-        success, _ = self.doc_service.request_document_access(
-            uploaded_file=enc_file_obj,
-            recipient_email="client@company.com",
-        )
         self.assertTrue(success)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn("client@company.com", mail.outbox[0].to)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(AccessVerificationToken.objects.filter(email=self.other_email).count(), 0)
 
-    def test_request_document_access_anti_enumeration(self):
-        """Verifica respuesta neutra sin envíos de correo para archivos o emails no autorizados."""
-        fake_pdf = SimpleUploadedFile("unknown.pdf", b"%PDF-1.4\n1 0 obj<</Unknown>>endobj\nxref\n0 0\n")
-        success, _ = self.doc_service.request_document_access(
-            uploaded_file=fake_pdf,
-            recipient_email="intruder@external.com",
+    def test_request_access_nonexistent_hash_anti_enumeration(self):
+        """Un hash inexistente devuelve respuesta genérica neutra."""
+        dummy_hash = "a" * 64
+        mail.outbox.clear()
+        success, message = request_document_access(
+            file_hash=dummy_hash,
+            email=self.allowed_email,
         )
         self.assertTrue(success)
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_access_token_model_methods_and_expiration(self):
-        """Verifica los métodos is_expired() e is_valid() con límite estricto de 15 minutos."""
-        uploaded = SimpleUploadedFile("token_test.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["test@token.local"],
-        )
-
-        token = AccessVerificationToken.objects.create(
-            document=doc,
-            email="test@token.local",
-            token_hash="samplehash123",
-            otp_code="123456",
-            expires_at=timezone.now() + timezone.timedelta(minutes=15),
-            is_used=False,
-        )
-        self.assertFalse(token.is_expired())
-        self.assertTrue(token.is_valid())
-
-        # Expiración
-        token.expires_at = timezone.now() - timezone.timedelta(seconds=1)
-        self.assertTrue(token.is_expired())
-        self.assertFalse(token.is_valid())
-
-    # --------------------------------------------------------------------------
-    # CONSUMO Y DESTRUCCIÓN FÍSICA (BURN-AFTER-READ)
-    # --------------------------------------------------------------------------
-    def test_consume_and_burn_via_magic_link_token(self):
-        """
-        Verifica el ciclo completo de consumo mediante token de Magic Link:
-        - Descifra el contenido original en memoria.
-        - Destruye físicamente el archivo .enc de disco (save=False).
-        - Actualiza el documento como consumido (is_consumed=True, consumed_by, consumed_at).
-        - Marca el token como usado.
-        - Registra action='descifrado_completado_burn' en DocumentAccessLog.
-        """
-        uploaded = SimpleUploadedFile("burn_target.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["authorized@burn.org"],
-        )
-        storage = doc.encrypted_file.storage
-        file_path = doc.encrypted_file.name
-        self.assertTrue(storage.exists(file_path))
-
-        # Solicitar acceso para obtener token
-        doc.encrypted_file.seek(0)
-        enc_copy = SimpleUploadedFile("burn_target.enc", doc.encrypted_file.read())
-        self.doc_service.request_document_access(
-            uploaded_file=enc_copy,
-            recipient_email="authorized@burn.org",
-            client_ip="10.0.0.5",
-            user_agent="SecurityTester/1.0",
-        )
-
-        sent_body = mail.outbox[-1].body
-        # Extraer token urlsafe de la URL en el correo: ?t=...
-        token_str = sent_body.split("?t=")[1].split()[0]
-
-        # Consumir documento
-        success, decrypted_bytes, filename, mimetype, message = (
-            self.doc_service.consume_and_burn_document(
-                token_str=token_str,
-                client_ip="10.0.0.5",
-                user_agent="SecurityTester/1.0",
-            )
-        )
-
-        self.assertTrue(success)
-        self.assertEqual(decrypted_bytes, self.test_content)
-        self.assertEqual(filename, "burn_target.pdf")
-        self.assertEqual(mimetype, "application/pdf")
-
-        # Comprobar DESTRUCCIÓN FÍSICA en disco
-        self.assertFalse(storage.exists(file_path))
-
-        # Comprobar estado en base de datos
-        doc.refresh_from_db()
-        self.assertTrue(doc.is_consumed)
-        self.assertEqual(doc.consumed_by, "authorized@burn.org")
-        self.assertIsNotNone(doc.consumed_at)
-        self.assertEqual(doc.access_count, 1)
-        self.assertEqual(doc.last_accessed_by, "authorized@burn.org")
-
-        # Comprobar token marcado como usado
-        token_obj = AccessVerificationToken.objects.filter(document=doc).first()
-        self.assertTrue(token_obj.is_used)
-
-        # Comprobar log de auditoría
-        burn_log = DocumentAccessLog.objects.filter(
-            document=doc,
-            action="descifrado_completado_burn",
-        ).first()
-        self.assertIsNotNone(burn_log)
-        self.assertEqual(burn_log.email, "authorized@burn.org")
-        self.assertEqual(burn_log.ip_address, "10.0.0.5")
-
-    def test_consume_and_burn_via_otp_code(self):
-        """Verifica el consumo y destrucción física mediante código numérico OTP de 6 dígitos."""
-        uploaded = SimpleUploadedFile("otp_burn.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["otp_user@company.com"],
-        )
-        storage = doc.encrypted_file.storage
-        file_path = doc.encrypted_file.name
-
-        doc.encrypted_file.seek(0)
-        enc_copy = SimpleUploadedFile("otp_burn.enc", doc.encrypted_file.read())
-        self.doc_service.request_document_access(
-            uploaded_file=enc_copy,
-            recipient_email="otp_user@company.com",
-        )
-
-        token_obj = AccessVerificationToken.objects.filter(document=doc).first()
-        otp = token_obj.otp_code
-
-        success, decrypted_bytes, filename, mimetype, message = (
-            self.doc_service.consume_and_burn_document(
-                otp_code=otp,
-                email="otp_user@company.com",
-            )
-        )
-
-        self.assertTrue(success)
-        self.assertEqual(decrypted_bytes, self.test_content)
-        self.assertFalse(storage.exists(file_path))
-
-        doc.refresh_from_db()
-        self.assertTrue(doc.is_consumed)
-        self.assertEqual(doc.consumed_by, "otp_user@company.com")
-
-    def test_consume_rejects_used_or_expired_token(self):
-        """Un token ya utilizado o expirado debe ser rechazado sin entregar datos ni destruir archivos."""
-        uploaded = SimpleUploadedFile("reject_token.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["valid@test.local"],
-        )
-
-        doc.encrypted_file.seek(0)
-        enc_copy = SimpleUploadedFile("doc.enc", doc.encrypted_file.read())
-        self.doc_service.request_document_access(
-            uploaded_file=enc_copy,
-            recipient_email="valid@test.local",
-        )
-        token_str = mail.outbox[-1].body.split("?t=")[1].split()[0]
-
-        token_obj = AccessVerificationToken.objects.filter(document=doc).first()
-        token_obj.expires_at = timezone.now() - timezone.timedelta(minutes=1)
-        token_obj.save(update_fields=["expires_at"])
-
-        success, decrypted, _, _, msg = self.doc_service.consume_and_burn_document(token_str=token_str)
-        self.assertFalse(success)
-        self.assertIsNone(decrypted)
-        self.assertIn("expirado", msg.lower())
-
-        # Probar token ya usado
-        token_obj.expires_at = timezone.now() + timezone.timedelta(minutes=15)
-        token_obj.is_used = True
-        token_obj.save(update_fields=["expires_at", "is_used"])
-
-        success, decrypted, _, _, msg = self.doc_service.consume_and_burn_document(token_str=token_str)
-        self.assertFalse(success)
-        self.assertIsNone(decrypted)
-        self.assertIn("utilizado", msg.lower())
-
-    # --------------------------------------------------------------------------
-    # GESTIÓN DE ACCESOS POSTERIORES (ARCHIVO YA CONSUMIDO)
-    # --------------------------------------------------------------------------
-    def test_post_consumption_notification_and_audit(self):
-        """
-        Si otro usuario autorizado solicita acceso a un documento ya consumido:
-        - No produce error 500 ni fuga datos.
-        - Envía un correo notificando que fue retirado por {consumed_by} en {consumed_at}.
-        - Registra action='intento_post_consumo' en DocumentAccessLog.
-        """
-        uploaded = SimpleUploadedFile("acuerdo.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["primero@empresa.com", "segundo@empresa.com"],
-        )
-
-        # Consumo por el primer usuario
-        doc.encrypted_file.seek(0)
-        enc_bytes = doc.encrypted_file.read()
-        self.doc_service.request_document_access(
-            uploaded_file=SimpleUploadedFile("acuerdo.enc", enc_bytes),
-            recipient_email="primero@empresa.com",
-        )
-        token_str = mail.outbox[-1].body.split("?t=")[1].split()[0]
-        self.doc_service.consume_and_burn_document(token_str=token_str)
-
-        mail.outbox.clear()
-
-        # Segundo usuario intenta solicitar acceso con el archivo .enc
-        success, message = self.doc_service.request_document_access(
-            uploaded_file=SimpleUploadedFile("acuerdo.enc", enc_bytes),
-            recipient_email="segundo@empresa.com",
-            client_ip="198.51.100.22",
-        )
-        self.assertTrue(success)
-        self.assertEqual(len(mail.outbox), 1)
-        post_mail = mail.outbox[0]
-        self.assertIn("segundo@empresa.com", post_mail.to)
-        self.assertIn("[Freedec] Archivo ya retirado: acuerdo.pdf", post_mail.subject)
-        self.assertIn("El documento 'acuerdo.pdf' ya fue retirado por primero@empresa.com", post_mail.body)
-        self.assertIn("Solicite una copia directamente a esa dirección.", post_mail.body)
-
-        # Verificar auditoría
-        post_log = DocumentAccessLog.objects.filter(
-            document=doc,
-            action="intento_post_consumo",
-        ).first()
-        self.assertIsNotNone(post_log)
-        self.assertEqual(post_log.email, "segundo@empresa.com")
-        self.assertEqual(post_log.ip_address, "198.51.100.22")
-
-    # --------------------------------------------------------------------------
-    # ACCESO ADMINISTRATIVO SIN DESTRUCCIÓN (AUDIT BYPASS)
-    # --------------------------------------------------------------------------
-    def test_admin_decrypt_preserves_file_and_audit_bypass(self):
-        """
-        Un administrador autenticado descarga el archivo original sin destruirlo ni marcarlo consumido.
-        Registra action='admin_inspeccion_preservada' en DocumentAccessLog.
-        """
-        uploaded = SimpleUploadedFile("informe_confidencial.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["auditor@seguridad.local"],
-        )
-        storage = doc.encrypted_file.storage
-        file_path = doc.encrypted_file.name
-
-        success, decrypted_bytes, filename, mimetype, message = (
-            self.doc_service.admin_decrypt_document(
-                document=doc,
-                admin_user=self.admin_user,
-                client_ip="10.200.1.1",
-            )
-        )
-
-        self.assertTrue(success)
-        self.assertEqual(decrypted_bytes, self.test_content)
-        self.assertEqual(filename, "informe_confidencial.pdf")
-
-        # PRESERVACIÓN: El archivo sigue en disco y no está consumido
-        self.assertTrue(storage.exists(file_path))
-        doc.refresh_from_db()
-        self.assertFalse(doc.is_consumed)
-
-        # AUDITORÍA ADMINISTRATIVA
-        admin_log = DocumentAccessLog.objects.filter(
-            document=doc,
-            action="admin_inspeccion_preservada",
-        ).first()
-        self.assertIsNotNone(admin_log)
-        self.assertEqual(admin_log.email, self.admin_user.email)
-        self.assertEqual(admin_log.ip_address, "10.200.1.1")
-
-    def test_admin_decrypt_fails_if_document_already_consumed(self):
-        """Si el documento ya fue consumido por un usuario final, el admin no puede descargarlo."""
-        uploaded = SimpleUploadedFile("consumed_report.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["user@test.local"],
-        )
-        doc.encrypted_file.seek(0)
-        self.doc_service.request_document_access(
-            uploaded_file=SimpleUploadedFile("consumed_report.enc", doc.encrypted_file.read()),
-            recipient_email="user@test.local",
-        )
-        token_str = mail.outbox[-1].body.split("?t=")[1].split()[0]
-        self.doc_service.consume_and_burn_document(token_str=token_str)
-
-        doc.refresh_from_db()
-        success, decrypted, _, _, msg = self.doc_service.admin_decrypt_document(
-            document=doc,
-            admin_user=self.admin_user,
-        )
-        self.assertFalse(success)
-        self.assertIsNone(decrypted)
-        self.assertIn("ya fue consumido", msg)
-
-    # --------------------------------------------------------------------------
-    # BORRADO FÍSICO POR SEÑALES DEL MODELO
-    # --------------------------------------------------------------------------
-    def test_file_renaming_does_not_affect_hash(self):
-        """Demuestra que renombrar el archivo no altera el hash SHA-256 ni la verificación."""
-        file1 = SimpleUploadedFile("nombre_original_del_archivo.pdf", self.test_content)
-        file2 = SimpleUploadedFile("nombre_completamente_cambiado_por_usuario.pdf", self.test_content)
-        hash1 = calculate_file_sha256(file1)
-        hash2 = calculate_file_sha256(file2)
-        self.assertEqual(hash1, hash2)
-
-    def test_original_filename_and_enc_naming(self):
-        """El registro guarda el nombre original y el archivo cifrado preserva el nombre con sufijo .enc."""
-        uploaded = SimpleUploadedFile("balance_anual_2026.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["finance@test.local"],
-        )
-        self.assertEqual(doc.original_filename, "balance_anual_2026.pdf")
-        self.assertIn("balance_anual_2026.pdf", doc.encrypted_file.name)
-        self.assertTrue(doc.encrypted_file.name.endswith(".enc"))
-
-    def test_physical_file_deleted_on_model_delete(self):
-        """Verifica que al eliminar un modelo EncryptedDocument no consumido se borra el archivo físico."""
-        uploaded = SimpleUploadedFile("file_to_delete.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["del@test.local"],
-        )
-        storage = doc.encrypted_file.storage
-        file_name = doc.encrypted_file.name
-        self.assertTrue(storage.exists(file_name))
-
-        doc.delete()
-        self.assertFalse(storage.exists(file_name))
-
-    def test_physical_file_deleted_on_queryset_delete(self):
-        """Verifica que al eliminar mediante QuerySet.delete() se borra el archivo físico."""
-        uploaded = SimpleUploadedFile("bulk_delete.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["bulk@test.local"],
-        )
-        storage = doc.encrypted_file.storage
-        file_name = doc.encrypted_file.name
-        self.assertTrue(storage.exists(file_name))
-
-        EncryptedDocument.objects.filter(id=doc.id).delete()
-        self.assertFalse(storage.exists(file_name))
-
-    def test_burn_policy_all_recipients_lifecycle(self):
-        """
-        Verifica el ciclo de vida completo de la política ALL_RECIPIENTS:
-        1. Se sube documento para Alice y Bob con burn_policy='ALL_RECIPIENTS'.
-        2. Alice solicita acceso y consume el documento.
-        3. El archivo físico se PRESERVA en disco y el documento NO se marca como consumido.
-        4. Alice intenta volver a acceder y es notificada de que ya descargó su copia.
-        5. Bob solicita acceso y consume el documento.
-        6. Al ser el último destinatario, el archivo físico se ELIMINA y el documento se marca consumido.
-        """
-        uploaded = SimpleUploadedFile("balance_multi.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["alice@empresa.com", "bob@empresa.com"],
-            burn_policy=EncryptedDocument.BurnPolicy.ALL_RECIPIENTS,
-        )
-        self.assertEqual(doc.burn_policy, EncryptedDocument.BurnPolicy.ALL_RECIPIENTS)
-        self.assertEqual(doc.consumed_recipients, [])
-        self.assertFalse(doc.is_consumed)
-
-        storage = doc.encrypted_file.storage
-        file_name = doc.encrypted_file.name
-        self.assertTrue(storage.exists(file_name))
-
-        doc.encrypted_file.seek(0)
-        enc_bytes = doc.encrypted_file.read()
-
-        # 1. Alice solicita acceso
-        mail.outbox.clear()
-        self.doc_service.request_document_access(
-            uploaded_file=SimpleUploadedFile("balance_multi.enc", enc_bytes),
-            recipient_email="alice@empresa.com",
-        )
-        self.assertEqual(len(mail.outbox), 1)
-        alice_token_str = mail.outbox[0].body.split("?t=")[1].split()[0]
-
-        # Alice consume el documento
-        success, decrypted_bytes, suggested_filename, mimetype, msg = (
-            self.doc_service.consume_and_burn_document(token_str=alice_token_str)
-        )
-        self.assertTrue(success)
-        self.assertEqual(decrypted_bytes, self.test_content)
-
-        doc.refresh_from_db()
-        self.assertFalse(doc.is_consumed, "El documento NO debe estar consumido porque Bob aún no accedió")
-        self.assertTrue(storage.exists(file_name), "El archivo físico DEBE preservarse para Bob")
-        self.assertIn("alice@empresa.com", doc.consumed_recipients)
-        self.assertNotIn("bob@empresa.com", doc.consumed_recipients)
-
-        # Verificar log de descifrado parcial
-        log_alice = DocumentAccessLog.objects.filter(
-            document=doc,
-            email="alice@empresa.com",
-            action="descifrado_parcial_preservado",
-        ).first()
-        self.assertIsNotNone(log_alice)
-
-        # 2. Alice intenta solicitar acceso nuevamente
-        mail.outbox.clear()
-        self.doc_service.request_document_access(
-            uploaded_file=SimpleUploadedFile("balance_multi.enc", enc_bytes),
-            recipient_email="alice@empresa.com",
-        )
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn("Copia ya descargada", mail.outbox[0].subject)
-
-        # 3. Bob solicita acceso
-        mail.outbox.clear()
-        self.doc_service.request_document_access(
-            uploaded_file=SimpleUploadedFile("balance_multi.enc", enc_bytes),
-            recipient_email="bob@empresa.com",
-        )
-        self.assertEqual(len(mail.outbox), 1)
-        bob_token_str = mail.outbox[0].body.split("?t=")[1].split()[0]
-
-        # Bob consume el documento (es el último)
-        success_bob, decrypted_bob, _, _, _ = (
-            self.doc_service.consume_and_burn_document(token_str=bob_token_str)
-        )
-        self.assertTrue(success_bob)
-        self.assertEqual(decrypted_bob, self.test_content)
-
-        doc.refresh_from_db()
-        self.assertTrue(doc.is_consumed, "El documento AHORA debe estar consumido por completarse todos")
-        self.assertFalse(storage.exists(file_name), "El archivo físico DEBE haber sido eliminado del disco")
-        self.assertIn("alice@empresa.com", doc.consumed_recipients)
-        self.assertIn("bob@empresa.com", doc.consumed_recipients)
-
-        # Verificar log de descifrado final burn
-        log_bob = DocumentAccessLog.objects.filter(
-            document=doc,
-            email="bob@empresa.com",
-            action="descifrado_completado_burn",
-        ).first()
-        self.assertIsNotNone(log_bob)
-
-    def test_reactivate_document_replaces_emails_and_preserves_history(self):
-        """
-        Verifica que reactivate_document:
-        1. Re-cifra el archivo con nueva DEK y crea nuevo archivo en disco.
-        2. Reemplaza allowed_emails exclusivamente con los nuevos correos (los anteriores no permanecen).
-        3. Reconstruye user_envelopes solo para los nuevos correos.
-        4. Resetea is_consumed a False y consumed_recipients a [].
-        5. Preserva el registro histórico en DocumentAccessLog con detalles de destinatarios anteriores y nuevos.
-        """
-        uploaded = SimpleUploadedFile("balance_reactivar.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["antiguo1@empresa.com", "antiguo2@empresa.com"],
-        )
-        old_dek = doc.admin_encrypted_dek
-        old_hash = doc.encrypted_file_hash
-
-        # Simular consumo previo
+    def test_request_access_post_consumed_notification(self):
+        """Si el documento ya fue consumido, envía notificación informativa y audita."""
+        upload_file = SimpleUploadedFile("doc_consumido.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
         doc.is_consumed = True
-        doc.consumed_by = "antiguo1@empresa.com"
-        doc.consumed_recipients = ["antiguo1@empresa.com"]
-        doc.encrypted_file.delete(save=False)
+        doc.consumed_by = "primero@seguro.gob.es"
+        doc.consumed_at = timezone.now()
         doc.save()
 
-        # Reactivar con nuevos destinatarios
-        reupload_file = SimpleUploadedFile("balance_reactivar.pdf", self.test_content)
-        reactivated = self.doc_service.reactivate_document(
+        mail.outbox.clear()
+        success, message = request_document_access(
+            file_hash=doc.file_hash,
+            email=self.allowed_email,
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].body
+        self.assertIn(doc.file_hash, body)
+        self.assertIn("ya fue retirado", body)
+        self.assertIn("primero@seguro.gob.es", body)
+
+        # Auditoría legal: intento_post_consumo
+        log = DocumentAccessLog.objects.filter(document=doc, action=DocumentAccessLog.Action.INTENTO_POST_CONSUMO).first()
+        self.assertIsNotNone(log)
+
+    # --------------------------------------------------------------------------
+    # 5. CANJE, DESCIFRADO Y BURN-AFTER-READ (consume_document_with_otp)
+    # --------------------------------------------------------------------------
+    def test_consume_document_with_otp_success_and_shredding(self):
+        """Canje exitoso descifra en RAM y tritura de disco físicamente."""
+        upload_file = SimpleUploadedFile("confidencial.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
+        physical_path = doc.encrypted_file.path
+        self.assertTrue(os.path.exists(physical_path))
+
+        request_document_access(doc.file_hash, self.allowed_email)
+        token = AccessVerificationToken.objects.get(document=doc, email=self.allowed_email)
+
+        success, decrypted_bytes, filename, msg = consume_document_with_otp(
+            file_hash=doc.file_hash,
+            email=self.allowed_email,
+            entered_otp=token.otp_code,
+            client_ip="192.168.1.105",
+            user_agent="Firefox Secure",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(decrypted_bytes, self.test_content)
+        self.assertEqual(filename, "confidencial.pdf")
+
+        # Comprobación de destrucción física (Burn-After-Read)
+        self.assertFalse(os.path.exists(physical_path))
+
+        # Estado del documento actualizado
+        doc.refresh_from_db()
+        self.assertTrue(doc.is_consumed)
+        self.assertEqual(doc.consumed_by, self.allowed_email)
+        self.assertIsNotNone(doc.consumed_at)
+
+        # Token revocado
+        token.refresh_from_db()
+        self.assertTrue(token.is_used)
+
+        # Auditoría legal: descifrado_exitoso_burn
+        log = DocumentAccessLog.objects.filter(document=doc, action=DocumentAccessLog.Action.DESCIFRADO_EXITOSO_BURN).first()
+        self.assertIsNotNone(log)
+
+    def test_consume_document_wrong_otp_attempts_and_lock(self):
+        """Código OTP erróneo descuenta intentos y se bloquea al 3er fallo."""
+        upload_file = SimpleUploadedFile("expediente.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
+
+        request_document_access(doc.file_hash, self.allowed_email)
+        token = AccessVerificationToken.objects.get(document=doc, email=self.allowed_email)
+
+        # 1er fallo
+        success1, _, _, msg1 = consume_document_with_otp(doc.file_hash, self.allowed_email, "999999")
+        self.assertFalse(success1)
+        self.assertIn("2", msg1)
+
+        # 2do fallo
+        success2, _, _, msg2 = consume_document_with_otp(doc.file_hash, self.allowed_email, "888888")
+        self.assertFalse(success2)
+        self.assertIn("1", msg2)
+
+        # 3er fallo: bloqueo definitivo
+        success3, _, _, msg3 = consume_document_with_otp(doc.file_hash, self.allowed_email, "777777")
+        self.assertFalse(success3)
+        self.assertIn("bloqueado", msg3.lower())
+
+        token.refresh_from_db()
+        self.assertTrue(token.is_used)
+        self.assertEqual(token.failed_attempts, 3)
+
+        # Auditoría legal: otp_invalido_bloqueado
+        log = DocumentAccessLog.objects.filter(document=doc, action=DocumentAccessLog.Action.OTP_INVALIDO_BLOQUEADO).first()
+        self.assertIsNotNone(log)
+
+    # --------------------------------------------------------------------------
+    # 6. DESCARGA DE AUDITORÍA ADMINISTRATIVA PRESERVADA
+    # --------------------------------------------------------------------------
+    def test_admin_decrypt_document_preserves_file(self):
+        """La auditoría administrativa descifra en memoria sin destruir el archivo."""
+        upload_file = SimpleUploadedFile("auditoria.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
+        physical_path = doc.encrypted_file.path
+
+        success, decrypted_bytes, filename, msg = admin_decrypt_document(
+            document=doc,
+            admin_user=self.admin_user,
+            client_ip="10.0.0.1",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(decrypted_bytes, self.test_content)
+        self.assertEqual(filename, "auditoria.pdf")
+
+        # El archivo físico NO debe ser destruido
+        self.assertTrue(os.path.exists(physical_path))
+
+        # El documento NO debe estar marcado como consumido
+        doc.refresh_from_db()
+        self.assertFalse(doc.is_consumed)
+
+        # Auditoría legal: admin_descarga_preservada
+        log = DocumentAccessLog.objects.filter(
+            document=doc, action=DocumentAccessLog.Action.ADMIN_DESCARGA_PRESERVADA
+        ).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.email, self.admin_user.email)
+
+    def test_admin_decrypt_fails_if_already_consumed(self):
+        """La descarga de auditoría no puede realizarse si el documento ya fue consumido."""
+        upload_file = SimpleUploadedFile("doc.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
+        doc.is_consumed = True
+        doc.save()
+
+        success, _, _, msg = admin_decrypt_document(doc, admin_user=self.admin_user)
+        self.assertFalse(success)
+        self.assertIn("consumido", msg.lower())
+
+    # --------------------------------------------------------------------------
+    # 7. FUNCIÓN SHRED_AND_DELETE_FILE
+    # --------------------------------------------------------------------------
+    def test_shred_and_delete_file_zeroization(self):
+        """Prueba de sobrescritura de archivo con bytes aleatorios y eliminación."""
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"DOCUMENTO_CONFIDENCIAL_DATOS_SENSIBLES_123456789")
+            temp_path = f.name
+
+        class MockFileField:
+            path = temp_path
+            def delete(self, save=False):
+                pass
+
+        result = shred_and_delete_file(MockFileField())
+        self.assertTrue(result)
+        self.assertFalse(os.path.exists(temp_path))
+
+    # --------------------------------------------------------------------------
+    # 8. POLÍTICA DE DESTRUCCIÓN Y REACTIVACIÓN DE DOCUMENTOS
+    # --------------------------------------------------------------------------
+    def test_burn_policy_all_recipients_partial_and_final_shredding(self):
+        """
+        En política ALL_RECIPIENTS:
+        - El canje por el primer usuario no destruye el archivo físico en disco.
+        - Se registra DESCIFRADO_PARCIAL_PRESERVADO y se anota en consumed_recipients.
+        - Un segundo intento del mismo usuario es notificado de que ya retiró su copia.
+        - Cuando el último destinatario consume, el archivo es triturado y se marca is_consumed=True.
+        """
+        user1 = "user1@seguro.gob.es"
+        user2 = "user2@seguro.gob.es"
+        upload_file = SimpleUploadedFile("expediente_multiple.pdf", self.test_content)
+        doc = upload_and_encrypt_document(
+            upload_file,
+            allowed_emails=[user1, user2],
+            burn_policy=EncryptedDocument.BurnPolicy.ALL_RECIPIENTS,
+        )
+        physical_path = doc.encrypted_file.path
+        self.assertTrue(os.path.exists(physical_path))
+
+        # 1. Primer usuario solicita y canjea
+        request_document_access(doc.file_hash, user1)
+        token1 = AccessVerificationToken.objects.get(document=doc, email=user1, is_used=False)
+        success1, data1, name1, msg1 = consume_document_with_otp(
+            file_hash=doc.file_hash,
+            email=user1,
+            entered_otp=token1.otp_code,
+        )
+        self.assertTrue(success1)
+        self.assertEqual(data1, self.test_content)
+
+        doc.refresh_from_db()
+        # El documento aún NO está consumido del todo y el archivo sigue en disco
+        self.assertFalse(doc.is_consumed)
+        self.assertIn(user1, doc.consumed_recipients)
+        self.assertTrue(os.path.exists(physical_path))
+
+        # Registro de auditoría parcial
+        self.assertTrue(
+            DocumentAccessLog.objects.filter(
+                document=doc,
+                email=user1,
+                action=DocumentAccessLog.Action.DESCIFRADO_PARCIAL_PRESERVADO,
+            ).exists()
+        )
+
+        # Re-intento del primer usuario: recibe aviso de copia ya descargada
+        mail.outbox.clear()
+        request_document_access(doc.file_hash, user1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("ya ha descargado previamente", mail.outbox[0].body)
+
+        # 2. Segundo usuario (último) solicita y canjea
+        request_document_access(doc.file_hash, user2)
+        token2 = AccessVerificationToken.objects.get(document=doc, email=user2, is_used=False)
+        success2, data2, name2, msg2 = consume_document_with_otp(
+            file_hash=doc.file_hash,
+            email=user2,
+            entered_otp=token2.otp_code,
+        )
+        self.assertTrue(success2)
+        self.assertEqual(data2, self.test_content)
+
+        doc.refresh_from_db()
+        # Ahora sí debe estar consumido y destruido físicamente
+        self.assertTrue(doc.is_consumed)
+        self.assertIn(user2, doc.consumed_recipients)
+        self.assertFalse(os.path.exists(physical_path))
+
+        # Registro de auditoría final
+        self.assertTrue(
+            DocumentAccessLog.objects.filter(
+                document=doc,
+                email=user2,
+                action=DocumentAccessLog.Action.DESCIFRADO_EXITOSO_BURN,
+            ).exists()
+        )
+
+    def test_reactivate_document_success(self):
+        """
+        Reactivación de un documento previamente consumido:
+        - Re-cifra con una nueva DEK.
+        - Restablece el estado is_consumed=False y limpia destinatarios consumidos.
+        - Invalida tokens previos pendientes.
+        - Registra evento de auditoría REACTIVACION_DOCUMENTO.
+        """
+        upload_file = SimpleUploadedFile("expediente_reactivar.pdf", self.test_content)
+        doc = upload_and_encrypt_document(upload_file, [self.allowed_email])
+        original_dek = doc.encrypted_dek
+
+        # Consumir el documento
+        request_document_access(doc.file_hash, self.allowed_email)
+        token = AccessVerificationToken.objects.get(document=doc, email=self.allowed_email, is_used=False)
+        consume_document_with_otp(doc.file_hash, self.allowed_email, token.otp_code)
+
+        doc.refresh_from_db()
+        self.assertTrue(doc.is_consumed)
+
+        # Reactivar con nuevo correo y archivo idéntico
+        reupload_file = SimpleUploadedFile("expediente_reactivar.pdf", self.test_content)
+        new_email = "nuevo_destinatario@seguro.gob.es"
+        reactivated = reactivate_document(
             document=doc,
             original_file=reupload_file,
-            new_emails=["nuevo1@empresa.com", "nuevo2@empresa.com"],
+            new_emails=[new_email],
             admin_user=self.admin_user,
         )
 
-        self.assertEqual(reactivated.pk, doc.pk)
         self.assertFalse(reactivated.is_consumed)
-        self.assertEqual(reactivated.consumed_recipients, [])
         self.assertIsNone(reactivated.consumed_by)
-        self.assertNotEqual(reactivated.admin_encrypted_dek, old_dek)
-        self.assertNotEqual(reactivated.encrypted_file_hash, old_hash)
+        self.assertIsNone(reactivated.consumed_at)
+        self.assertEqual(reactivated.consumed_recipients, [])
+        self.assertEqual(reactivated.allowed_emails, [new_email])
+        self.assertNotEqual(reactivated.encrypted_dek, original_dek)
+        self.assertTrue(os.path.exists(reactivated.encrypted_file.path))
 
-        # Los correos antiguos ya NO están en la lista, solo los nuevos
-        self.assertNotIn("antiguo1@empresa.com", reactivated.allowed_emails)
-        self.assertNotIn("antiguo2@empresa.com", reactivated.allowed_emails)
-        self.assertIn("nuevo1@empresa.com", reactivated.allowed_emails)
-        self.assertIn("nuevo2@empresa.com", reactivated.allowed_emails)
-        self.assertIn("nuevo1@empresa.com", reactivated.user_envelopes)
-        self.assertNotIn("antiguo1@empresa.com", reactivated.user_envelopes)
-
-        # Archivo físico en disco restaurado
-        self.assertTrue(reactivated.encrypted_file.storage.exists(reactivated.encrypted_file.name))
-
-        # Log histórico de reactivación registrado
-        log = DocumentAccessLog.objects.filter(
-            document=reactivated,
-            action="reactivacion_documento",
-        ).first()
-        self.assertIsNotNone(log)
-        self.assertIn("antiguo1@empresa.com", log.user_agent)
-        self.assertIn("nuevo1@empresa.com", log.user_agent)
-
-    def test_reactivate_document_rejects_mismatched_hash(self):
-        """Reactivar con un archivo de contenido diferente arroja ValidationError."""
-        uploaded = SimpleUploadedFile("original.pdf", self.test_content)
-        doc, _ = self.doc_service.upload_and_encrypt_document(
-            original_file=uploaded,
-            allowed_emails=["test@empresa.com"],
+        # Auditoría registrada
+        self.assertTrue(
+            DocumentAccessLog.objects.filter(
+                document=reactivated,
+                action=DocumentAccessLog.Action.REACTIVACION_DOCUMENTO,
+            ).exists()
         )
-        different_file = SimpleUploadedFile("otro.pdf", b"%PDF-1.4 completely different content")
-        with self.assertRaises(ValidationError):
-            self.doc_service.reactivate_document(
-                document=doc,
-                original_file=different_file,
-                new_emails=["nuevo@empresa.com"],
-            )
+
+    def test_upload_duplicate_hash_with_reopen_existing_true(self):
+        """Si reopen_existing=True, subir el mismo archivo reactiva el documento automáticamente."""
+        file1 = SimpleUploadedFile("doc1.pdf", self.test_content)
+        doc1 = upload_and_encrypt_document(file1, [self.allowed_email])
+
+        new_email = "segundo@seguro.gob.es"
+        file2 = SimpleUploadedFile("doc2.pdf", self.test_content)
+        doc2 = upload_and_encrypt_document(
+            file2,
+            [new_email],
+            reopen_existing=True,
+            admin_user=self.admin_user,
+        )
+
+        self.assertEqual(doc1.pk, doc2.pk)
+        self.assertTrue(getattr(doc2, "_is_reactivated", False))
+        self.assertIn(new_email, doc2.allowed_emails)
 

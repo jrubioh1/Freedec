@@ -1,21 +1,29 @@
 {% extends "freedec/base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Consumir Documento (.enc)" %} | Freedec{% endblock %}
+{% block title %}{% trans "Canjear Documento con OTP" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🔥</span> {% trans "Consumo y Descarga Segura (Burn-After-Read)" %}
+                <span>🔥</span> {% trans "Canje y Verificación OTP (Burn-After-Read)" %}
             </h1>
             <span class="badge badge-emerald">{% trans "Descarga Única" %}</span>
         </div>
         <p class="card-subtitle">
-            {% blocktrans %}Introduzca su <strong>código OTP de 6 dígitos</strong> y correo electrónico recibidos para descifrar y descargar el documento original.{% endblocktrans %}
+            {% blocktrans %}Introduzca su <strong>código OTP de 6 dígitos</strong> recibido por correo para verificar su identidad, descifrar el documento en memoria RAM y descargarlo.{% endblocktrans %}
         </p>
     </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert {% if message.tags %}alert-{{ message.tags }}{% else %}alert-info{% endif %}">
+                <div>{{ message }}</div>
+            </div>
+        {% endfor %}
+    {% endif %}
 
     {% if error_message %}
         <div class="alert alert-error">
@@ -34,9 +42,24 @@
         </div>
     {% endif %}
 
+    {% if file_hash %}
+        <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
+            <div style="margin-bottom: 0.35rem; color: var(--text-muted);">
+                <strong style="color: var(--accent-cyan);">{% trans "Hash SHA-256 del trámite:" %}</strong><br>
+                <code style="word-break: break-all; color: #bae6fd; font-family: monospace;">{{ file_hash }}</code>
+            </div>
+            {% if email %}
+                <div style="color: var(--text-muted); margin-top: 0.5rem;">
+                    <strong style="color: var(--accent-cyan);">{% trans "Buzón verificado:" %}</strong> {{ email }}
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+
     <form method="POST">
         {% csrf_token %}
-        {{ form.token }}
+        {{ form.file_hash }}
+        {{ form.email }}
 
         <div class="form-group">
             <label for="{{ form.otp_code.id_for_label }}" class="form-label">
@@ -51,28 +74,20 @@
             <span class="form-help">{{ form.otp_code.help_text }}</span>
         </div>
 
-        <div class="form-group">
-            <label for="{{ form.email.id_for_label }}" class="form-label">
-                {{ form.email.label }} *
-            </label>
-            {{ form.email }}
-            {% if form.email.errors %}
-                <div style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.35rem;">
-                    {{ form.email.errors.0 }}
-                </div>
-            {% endif %}
-            <span class="form-help">{{ form.email.help_text }}</span>
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-            📥 {% trans "Descifrar, Descargar y Destruir Archivo en Servidor" %}
+        <button type="submit" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">
+            📥 {% trans "Validar OTP, Descifrar y Descargar Documento" %}
         </button>
     </form>
 
     <div style="background-color: #0b1329; border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
-        <h3 style="font-size: 0.95rem; color: #fca5a5; margin-bottom: 0.5rem;">⚠️ {% trans "Política Estricta de Destrucción (Burn-After-Read):" %}</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-            {% trans "En cuanto se complete la descarga, el archivo .enc almacenado en el servidor será eliminado de forma física y definitiva. Ningún otro usuario podrá volver a solicitarlo o descargarlo." %}
+        <h3 style="font-size: 0.95rem; color: #fca5a5; margin-bottom: 0.5rem;">
+            ⚠️ {% trans "Política de Seguridad y Destrucción Criptográfica:" %}
+        </h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 0.5rem;">
+            {% trans "Dispone de un máximo de 3 intentos fallidos de OTP. Si se agotan, el token se revocará automáticamente." %}
+        </p>
+        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin: 0;">
+            {% trans "En cuanto el código sea verificado con éxito, el archivo cifrado en disco será sobrescrito con bytes aleatorios y destruido físicamente de forma permanente (Burn-After-Read)." %}
         </p>
     </div>
 </div>

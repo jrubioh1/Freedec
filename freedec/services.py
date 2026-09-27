@@ -1,81 +1,46 @@
-import base64
 import hashlib
 import io
 import logging
 import os
+import re
 import secrets
-import string
-import zipfile
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 from django.conf import settings
-from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.core.mail import BadHeaderError, send_mail
+from django.core.mail import send_mail
 from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from freedec.models import AccessVerificationToken, DocumentAccessLog, EncryptedDocument
-from freedec.validators import validate_document_file, validate_safe_email
+from freedec.validators import (
+    normalize_and_validate_email_list,
+    validate_document_file,
+    validate_safe_email,
+)
 
 logger = logging.getLogger(__name__)
 
-
-def derive_fernet_key(password: str, salt: bytes) -> bytes:
-    """
-    Deriva una clave simétrica de 32 bytes compatible con Fernet (base64 url-safe)
-    a partir de una contraseña y un salt criptográfico utilizando PBKDF2-HMAC-SHA256 (100.000 iteraciones).
-    Mitiga ataques de diccionario y fuerza bruta offline contra las contraseñas de usuario (OWASP A02).
-    """
-    kdf = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
-    return base64.urlsafe_b64encode(kdf)
-
-
-def generate_secure_password(length: int = 24) -> str:
-    """
-    Genera automáticamente una contraseña criptográficamente segura de alta entropía.
-    Incluye caracteres alfanuméricos y símbolos de forma balanceada.
-    """
-    chars = string.ascii_letters + string.digits + "!@#$%&*-_=+"
-    while True:
-        pwd = "".join(secrets.choice(chars) for _ in range(length))
-        if (
-            any(c.islower() for c in pwd)
-            and any(c.isupper() for c in pwd)
-            and any(c.isdigit() for c in pwd)
-            and any(c in "!@#$%&*-_=+" for c in pwd)
-        ):
-            return pwd
-
-# Hash PBKDF2 ficticio precalculado para neutralizar ataques de canal lateral (Timing Attacks)
-# cuando un documento no es encontrado en la base de datos (OWASP A04: Insecure Design).
-DUMMY_PBKDF2_HASH = (
-    "pbkdf2_sha256$720000$freedecdummy$"
-    "e2ZmMDU0YTI4ODUzYmIxZTc4MTE4Mzk5ZTRhOWRhZjYzMGQ0MGYzOWU0MDcwNDdlMWE5N2QxMTQxZDIzNzMwOA=="
+CHUNK_SIZE: int = 64 * 1024  # 64 KB para lectura segura por bloques anti-DoS (OWASP A04)
+HASH_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
+GENERIC_ACCESS_MESSAGE: str = _(
+    "Si los datos indicados corresponden a un documento activo y una dirección de correo "
+    "autorizada, recibirá en breves momentos un código de verificación (OTP) en su buzón."
 )
 
-# Tamaño máximo por defecto para subida de archivos (50 MB)
-DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024
-CHUNK_SIZE = 64 * 1024  # 64 KB por bloque para cálculo y lectura segura anti-DoS
 
-
-def calculate_file_sha256(file_obj) -> str:
+def calculate_file_sha256(file_obj: Any) -> str:
     """
     Calcula el hash criptográfico SHA-256 de un archivo binario mediante lectura en streaming.
-    
-    Principios de Ciberseguridad (OWASP A04 / A08):
-    - Lectura en bloques (chunks) de 64 KB: Previene ataques de Denegación de Servicio (DoS)
-      por agotamiento de memoria RAM (OOM) en archivos de gran tamaño.
-    - Preservación del cursor: Guarda la posición inicial del puntero y la restaura al terminar
-      para permitir lecturas posteriores sin corromper el stream de subida.
+    Preserva y restaura el cursor de lectura del stream.
     """
-    sha256_hasher = hashlib.sha256()
-    
-    # Guardar posición original del puntero de lectura
+    hasher = hashlib.sha256()
     original_position = 0
+
     if hasattr(file_obj, "tell"):
         try:
             original_position = file_obj.tell()
@@ -85,907 +50,684 @@ def calculate_file_sha256(file_obj) -> str:
     if hasattr(file_obj, "seek"):
         file_obj.seek(0)
 
-    # Lectura eficiente en bloques
     if hasattr(file_obj, "chunks"):
         for chunk in file_obj.chunks(CHUNK_SIZE):
-            sha256_hasher.update(chunk)
+            hasher.update(chunk)
     else:
         while True:
             chunk = file_obj.read(CHUNK_SIZE)
             if not chunk:
                 break
-            sha256_hasher.update(chunk)
+            hasher.update(chunk)
 
-    # Restaurar puntero de lectura al inicio para que otros procesos puedan leerlo
     if hasattr(file_obj, "seek"):
-        file_obj.seek(0)
+        file_obj.seek(original_position)
 
-    return sha256_hasher.hexdigest()
+    return hasher.hexdigest().lower()
 
 
-def detect_file_extension_and_mimetype(data: bytes) -> Tuple[str, str]:
+def shred_and_delete_file(file_field: Any) -> bool:
     """
-    Detecta la extensión de archivo y el mimetype analizando las cabeceras binarias (magic bytes).
-    Soporta PDF, OpenXML (Word/Excel/PowerPoint), OpenDocument Format (LibreOffice) y OLE2 (doc/xls/ppt).
+    Función auxiliar de borrado seguro (Zeroization/Shredding):
+    Sobrescribe el archivo en disco con bytes aleatorios (os.urandom) antes de
+    eliminarlo del sistema de archivos físico, previniendo recuperación forense.
     """
-    if data.startswith(b"%PDF-"):
-        return ".pdf", "application/pdf"
+    if not file_field:
+        return False
 
-    if data.startswith(b"PK\x03\x04"):
+    try:
+        path = None
         try:
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                names = set(zf.namelist())
-                if "word/document.xml" in names:
-                    return ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                if "xl/workbook.xml" in names:
-                    return ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                if "ppt/presentation.xml" in names:
-                    return ".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                if "mimetype" in names:
-                    mime_content = zf.read("mimetype").decode("utf-8", errors="ignore").strip()
-                    if "opendocument.text" in mime_content:
-                        return ".odt", "application/vnd.oasis.opendocument.text"
-                    if "opendocument.spreadsheet" in mime_content:
-                        return ".ods", "application/vnd.oasis.opendocument.spreadsheet"
-                    if "opendocument.presentation" in mime_content:
-                        return ".odp", "application/vnd.oasis.opendocument.presentation"
+            path = file_field.path
+        except (AttributeError, NotImplementedError, ValueError):
+            path = None
+
+        if path and os.path.exists(path):
+            file_size = os.path.getsize(path)
+            if file_size > 0:
+                with open(path, "ba+", buffering=0) as f:
+                    f.seek(0)
+                    f.write(os.urandom(file_size))
+                    f.flush()
+                    os.fsync(f.fileno())
+            os.remove(path)
+            logger.info(f"[FREEDEC AUDIT] Shredding físico completado para: {path}")
+
+        file_field.delete(save=False)
+        return True
+    except Exception as exc:
+        logger.error(f"[FREEDEC ERROR] Fallo durante trituración segura de archivo: {exc}")
+        try:
+            file_field.delete(save=False)
         except Exception:
             pass
-        return ".zip", "application/zip"
-
-    if data.startswith(b"\xd0\xcf\x11\xe0"):
-        return ".doc", "application/msword"
-
-    return ".bin", "application/octet-stream"
+        return False
 
 
-class FernetCryptoService:
+def get_server_fernet_key() -> bytes:
+    """Obtiene y normaliza la clave de servidor FREEDEC_FERNET_KEY en bytes."""
+    key = getattr(settings, "FREEDEC_FERNET_KEY", None)
+    if not key:
+        raise ValueError("settings.FREEDEC_FERNET_KEY no se encuentra configurada.")
+    if isinstance(key, str):
+        return key.strip().encode("utf-8")
+    return key
+
+
+def reactivate_document(
+    document: EncryptedDocument,
+    original_file: Any,
+    new_emails: Union[List[str], str, Any] = None,
+    burn_policy: Optional[str] = None,
+    admin_user: Any = None,
+    client_ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> EncryptedDocument:
     """
-    Servicio de Cifrado Simétrico Autenticado (AEAD) basado en cryptography.fernet.
+    Reactiva un documento existente (consumido o activo) re-cifrándolo con una nueva DEK,
+    reemplazando la lista de destinatarios autorizados exclusivamente por los nuevos correos
+    y preservando todo el historial previo en DocumentAccessLog.
+    """
+    validate_document_file(original_file)
+    new_hash = calculate_file_sha256(original_file)
+    if new_hash != document.file_hash:
+        raise ValidationError(
+            _("El archivo proporcionado no coincide con el hash SHA-256 del documento original.")
+        )
+
+    dek: bytes = Fernet.generate_key()
+    fernet_dek = Fernet(dek)
+
+    original_file.seek(0)
+    file_bytes = original_file.read()
+    encrypted_bytes = fernet_dek.encrypt(file_bytes)
+
+    server_key = get_server_fernet_key()
+    server_fernet = Fernet(server_key)
+    encrypted_dek_str = server_fernet.encrypt(dek).decode("utf-8")
+
+    # Triturar archivo anterior en disco
+    if document.encrypted_file:
+        shred_and_delete_file(document.encrypted_file)
+
+    filename = getattr(original_file, "name", document.original_filename) or document.original_filename
+    clean_filename = os.path.basename(filename)
+    enc_filename = f"{clean_filename}.enc"
+    document.encrypted_file.save(enc_filename, ContentFile(encrypted_bytes), save=False)
+
+    normalized_emails = (
+        normalize_and_validate_email_list(new_emails) if new_emails is not None else document.allowed_emails
+    )
+    document.encrypted_dek = encrypted_dek_str
+    document.allowed_emails = normalized_emails
+    if burn_policy:
+        document.burn_policy = burn_policy
+    document.is_consumed = False
+    document.consumed_by = None
+    document.consumed_at = None
+    document.consumed_recipients = []
+    document.save()
+
+    # Invalidar tokens pendientes previos de este documento
+    AccessVerificationToken.objects.filter(document=document, is_used=False).update(is_used=True)
+
+    admin_identifier = (
+        getattr(admin_user, "email", None)
+        or getattr(admin_user, "username", None)
+        or str(admin_user or "admin")
+    )
+    DocumentAccessLog.objects.create(
+        document=document,
+        email=admin_identifier,
+        action=DocumentAccessLog.Action.REACTIVACION_DOCUMENTO,
+        ip_address=client_ip,
+        user_agent=user_agent,
+    )
+    logger.info(
+        f"[FREEDEC AUDIT] Documento {document.file_hash[:12]}... reactivado exitosamente por '{admin_identifier}'."
+    )
+    return document
+
+
+def upload_and_encrypt_document(
+    original_file: Any,
+    allowed_emails: Union[List[str], str, Any],
+    burn_policy: str = EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+    reopen_existing: bool = False,
+    admin_user: Any = None,
+    client_ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> EncryptedDocument:
+    """
+    Servicio de registro y cifrado desatendido de documentos confidenciales.
     
-    Detalles Criptográficos (OWASP A02: Cryptographic Failures):
-    - Algoritmo: AES-128 en modo CBC con padding PKCS7.
-    - Autenticación: HMAC-SHA256 con clave de integridad derivada.
-    - Clave: Derivada de 'settings.FREEDEC_FERNET_KEY' (debe ser una clave base64 url-safe de 32 bytes).
-    - Propiedad AEAD: Si un atacante modifica un solo bit del archivo en disco o del token cifrado,
-      la verificación HMAC fallará y lanzará una excepción InvalidToken, impidiendo ataques de padding oracle.
+    Si 'reopen_existing=True' y ya existe un documento con el mismo hash SHA-256,
+    se reactiva automáticamente re-cifrando en disco y actualizando destinatarios
+    sin duplicar el identificador en base de datos.
+    
+    Retorna: EncryptedDocument (con atributo '_is_reactivated' indicando si fue reactivación)
     """
+    validate_document_file(original_file)
 
-    def __init__(self, key: str = None):
-        raw_key = key or getattr(settings, "FREEDEC_FERNET_KEY", None)
-        if not raw_key:
-            # Fallback seguro para entorno de testing
-            if getattr(settings, "TESTING", False):
-                raw_key = Fernet.generate_key().decode()
-            else:
-                raise ValueError("No se ha configurado 'FREEDEC_FERNET_KEY' en los settings de Django.")
-        
-        if isinstance(raw_key, str):
-            raw_key = raw_key.encode("utf-8")
-        
-        self.fernet = Fernet(raw_key)
-
-    def encrypt_bytes(self, data: bytes) -> bytes:
-        """Cifra un arreglo de bytes utilizando AES-128-CBC + HMAC-SHA256."""
-        return self.fernet.encrypt(data)
-
-    def decrypt_bytes(self, token: bytes) -> bytes:
-        """
-        Descifra un arreglo de bytes cifrados.
-        Lanza ValueError si el token ha sido alterado o la clave es incorrecta.
-        """
-        try:
-            return self.fernet.decrypt(token)
-        except InvalidToken as exc:
-            logger.error("[FREEDEC SECURITY] Error de integridad o clave incorrecta al descifrar bytes con Fernet.")
-            raise ValueError("Fallo de integridad o clave inválida al descifrar el contenido.") from exc
-
-    def encrypt_string(self, text: str) -> str:
-        """Cifra una cadena de texto (ej. contraseña) y la devuelve en formato base64 url-safe (string)."""
-        encrypted_bytes = self.encrypt_bytes(text.encode("utf-8"))
-        return encrypted_bytes.decode("utf-8")
-
-    def decrypt_string(self, token_str: str) -> str:
-        """Descifra una cadena de texto cifrada y devuelve el texto plano original en UTF-8."""
-        decrypted_bytes = self.decrypt_bytes(token_str.encode("utf-8"))
-        return decrypted_bytes.decode("utf-8")
-
-
-class DocumentManagementService:
-    """
-    Capa de servicios de negocio y orquestación criptográfica de Freedec.
-
-    Principios de Ciberseguridad (OWASP Top 10):
-    1. Arquitectura Criptográfica DEK Multi-Usuario con Sobres Digitales (user_envelopes):
-       - Clave Maestra de Datos (DEK): Generada por Fernet.generate_key().
-       - Cifrado único: El archivo original se cifra una sola vez con la DEK.
-       - Para cada correo en allowed_emails:
-         - Genera un secreto aleatorio individual para ese usuario (user_secret).
-         - Cifra la DEK con dicho secreto: Fernet(user_secret).encrypt(dek).
-         - Cifra el secreto del usuario con FREEDEC_FERNET_KEY de servidor y lo guarda en el sobre.
-       - Cifra la DEK con la clave de servidor para permitir descarga administrativa preservada.
-    2. Flujo de Acceso Dinámico (Magic Link / OTP) - Prueba de posesión en tiempo real:
-       - No existen contraseñas fijas ni códigos de acceso estáticos.
-       - El usuario final solicita acceso subiendo el archivo .enc y su correo electrónico.
-       - Si el documento está activo y autorizado, se genera un token de un solo uso y un código
-         OTP de 6 dígitos con expiración estricta de 15 minutos.
-       - Se notifica por correo electrónico con enlace directo y código alternativo.
-    3. Descifrado al Vuelo y Destrucción Física (Burn-After-Read):
-       - Al validar el token u OTP en la vista de consumo, el backend abre el sobre digital del usuario,
-         recupera la DEK y entrega el archivo descifrado al usuario.
-       - El archivo físico .enc en disco se elimina de forma inmediata y definitiva (save=False).
-       - El registro en BD se actualiza: is_consumed=True, consumed_by=email, consumed_at=now.
-       - El token se marca como is_used=True.
-       - Se audita el evento con action='descifrado_completado_burn'.
-    4. Gestión de Intentos Post-Consumo:
-       - Si otro usuario autorizado intenta solicitar acceso a un documento consumido, no se generan
-         errores 500 ni se fuga el binario; se envía un correo informando que el recurso ya fue
-         reclamado por consumed_by en consumed_at.
-       - Se audita con action='intento_post_consumo'.
-    5. Descarga Administrativa Preservada (Audit Bypass):
-       - El personal administrativo autenticado puede descargar el archivo original descifrado
-         sin eliminar el archivo ni marcarlo como consumido.
-       - Se audita con action='admin_inspeccion_preservada'.
-    """
-
-    def __init__(self, crypto_service: FernetCryptoService = None):
-        self.crypto_service = crypto_service or FernetCryptoService()
-
-    @transaction.atomic
-    def reactivate_document(
-        self,
-        document: EncryptedDocument,
-        original_file,
-        new_emails: List[str] = None,
-        burn_policy: Optional[str] = None,
-        admin_user=None,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> EncryptedDocument:
-        """
-        Reactiva un documento existente (consumido o activo) re-cifrándolo con una nueva DEK,
-        reemplazando la lista de destinatarios autorizados exclusivamente por los nuevos correos
-        (los correos anteriores se conservan en los registros históricos de auditoría) y
-        preservando todo el historial previo en DocumentAccessLog.
-        """
-        validate_document_file(original_file)
-        new_hash = calculate_file_sha256(original_file)
-        if new_hash != document.file_hash:
-            raise ValidationError(
-                _("El archivo proporcionado no coincide con el hash del documento original.")
-            )
-
-        # 1. Generación de nueva DEK simétrica
-        dek = Fernet.generate_key()
-
-        # 2. Cifrado con la nueva DEK
-        original_file.seek(0)
-        file_bytes = original_file.read()
-        encrypted_bytes = Fernet(dek).encrypt(file_bytes)
-        encrypted_file_hash = hashlib.sha256(encrypted_bytes).hexdigest()
-
-        # 3. Cifrar la DEK para el administrador con la clave del servidor
-        admin_encrypted_dek = self.crypto_service.encrypt_bytes(dek).decode("utf-8")
-
-        # 4. Eliminar archivo físico anterior si existe
-        if document.encrypted_file:
-            try:
-                document.encrypted_file.delete(save=False)
-            except Exception as exc:
-                logger.warning(f"[FREEDEC] Error al limpiar archivo físico previo: {exc}")
-
-        # Guardar nuevo archivo binario .enc
-        safe_name = document.original_filename or "documento.pdf"
-        enc_filename = f"{safe_name}.enc"
-        document.encrypted_file.save(enc_filename, ContentFile(encrypted_bytes), save=False)
-        document.encrypted_file_hash = encrypted_file_hash
-        document.admin_encrypted_dek = admin_encrypted_dek
-
-        # 5. Reemplazar correos autorizados: solo los nuevos destinatarios
-        # Los correos anteriores se preservan únicamente en los registros históricos de auditoría
-        previous_emails = list(document.allowed_emails or [])
-        clean_new_emails = []
-        if new_emails:
-            for email in new_emails:
-                if isinstance(email, str) and email.strip():
-                    try:
-                        valid_email = validate_safe_email(email)
-                        if valid_email not in clean_new_emails:
-                            clean_new_emails.append(valid_email)
-                    except ValidationError:
-                        pass
-        if not clean_new_emails:
-            clean_new_emails = ["destinatario@freedec.local"]
-        document.allowed_emails = clean_new_emails
-
-        # 6. Reconstruir sobres digitales exclusivamente para los nuevos destinatarios
-        user_envelopes = {}
-        for email in clean_new_emails:
-            user_secret = Fernet.generate_key()
-            encrypted_dek = Fernet(user_secret).encrypt(dek).decode("utf-8")
-            encrypted_user_secret = self.crypto_service.encrypt_bytes(user_secret).decode("utf-8")
-            user_envelopes[email] = {
-                "encrypted_dek": encrypted_dek,
-                "encrypted_user_secret": encrypted_user_secret,
-            }
-        document.user_envelopes = user_envelopes
-
-        # 7. Actualizar política si se especificó
-        if burn_policy:
-            valid_policies = [p[0] for p in EncryptedDocument.BurnPolicy.choices]
-            if burn_policy in valid_policies:
-                document.burn_policy = burn_policy
-
-        # 8. Resetear estado de consumo para el nuevo ciclo de distribución
-        document.is_consumed = False
-        document.consumed_by = None
-        document.consumed_at = None
-        document.consumed_recipients = []
-        document.save()
-
-        # 9. Registrar auditoría detallada de reactivación
-        admin_identifier = (
-            getattr(admin_user, "email", None)
-            or getattr(admin_user, "username", "admin")
-            if admin_user else "admin"
-        )
-        audit_details = (
-            f"Reactivación y re-cifrado. Destinatarios anteriores: {previous_emails}. "
-            f"Nuevos destinatarios habilitados: {clean_new_emails} (Total: {len(clean_new_emails)})."
+    max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", 50 * 1024 * 1024)
+    file_size = getattr(original_file, "size", None)
+    if file_size is not None and file_size > max_size:
+        raise ValidationError(
+            _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
+            % {"max_size": max_size // (1024 * 1024)}
         )
 
-        try:
-            DocumentAccessLog.objects.create(
-                document=document,
-                email=admin_identifier,
-                action="reactivacion_documento",
-                ip_address=client_ip,
-                user_agent=audit_details,
-            )
-        except Exception as exc:
-            logger.warning(f"[FREEDEC] Error al registrar reactivacion_documento: {exc}")
+    normalized_emails = normalize_and_validate_email_list(allowed_emails)
+    file_hash = calculate_file_sha256(original_file)
 
-        logger.info(
-            f"[FREEDEC AUDIT] Documento '{document.original_filename}' (PK={document.pk}) reactivado exitosamente por '{admin_identifier}'. Destinatarios habilitados: {len(clean_new_emails)}."
-        )
-        return document
-
-    @transaction.atomic
-    def upload_and_encrypt_document(
-        self,
-        original_file,
-        allowed_emails: List[str] = None,
-        plain_password: Optional[str] = None,
-        burn_policy: str = EncryptedDocument.BurnPolicy.FIRST_ACCESS,
-        reopen_existing: bool = False,
-        admin_user=None,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Tuple[EncryptedDocument, bool]:
-        """
-        Registra y cifra un documento aplicando el patrón DEK multi-usuario (user_envelopes)
-        y la política de destrucción configurada (FIRST_ACCESS o ALL_RECIPIENTS).
-        Si reopen_existing=True y ya existe un documento con el mismo file_hash, reactiva
-        el registro existente habilitando los nuevos destinatarios y preservando el historial.
-        Retorna la tupla (document, is_reactivated).
-        """
-        max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
-        if hasattr(original_file, "size") and original_file.size > max_size:
-            max_mb = max_size // (1024 * 1024)
-            raise ValidationError(
-                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
-                % {"max_size": max_mb}
-            )
-
-        # Validación estructural y de firmas binarias (OWASP A03 / A08)
-        validate_document_file(original_file)
-
-        # 1. Identificación criptográfica por SHA-256 del contenido original
-        file_hash = calculate_file_sha256(original_file)
-
-        # Si se solicita reutilizar o reactivar registro existente con el mismo hash
+    existing_doc = EncryptedDocument.objects.filter(file_hash=file_hash).first()
+    if existing_doc:
         if reopen_existing:
-            existing_doc = EncryptedDocument.objects.filter(file_hash=file_hash).order_by("-created_at").first()
-            if existing_doc:
-                reactivated_doc = self.reactivate_document(
-                    document=existing_doc,
-                    original_file=original_file,
-                    new_emails=allowed_emails,
-                    burn_policy=burn_policy,
-                    admin_user=admin_user,
-                    client_ip=client_ip,
-                    user_agent=user_agent,
-                )
-                return reactivated_doc, True
-
-        # 2. Generación de Clave Maestra simétrica única (DEK)
-        dek = Fernet.generate_key()
-
-        # 3. Cifrado del contenido original una sola vez usando la DEK
-        original_file.seek(0)
-        file_bytes = original_file.read()
-        encrypted_bytes = Fernet(dek).encrypt(file_bytes)
-        encrypted_file_hash = hashlib.sha256(encrypted_bytes).hexdigest()
-
-        # Cifrar la DEK para el Administrador con la clave del servidor
-        admin_encrypted_dek = self.crypto_service.encrypt_bytes(dek).decode("utf-8")
-
-        # 4. Empaquetar el archivo cifrado para almacenamiento seguro en disco
-        raw_name = getattr(original_file, "name", "documento") or "documento"
-        safe_original_name = os.path.basename(str(raw_name)).strip()
-        if not safe_original_name or safe_original_name == ".":
-            safe_original_name = "documento.pdf"
-
-        enc_filename = f"{safe_original_name}.enc"
-        encrypted_content = ContentFile(encrypted_bytes, name=enc_filename)
-
-        # 5. Desinfección y normalización rigurosa de correos autorizados
-        allowed_list = allowed_emails or []
-        normalized_emails = sorted(
-            list(
-                {
-                    validate_safe_email(email)
-                    for email in allowed_list
-                    if isinstance(email, str) and email.strip()
-                }
+            reactivated = reactivate_document(
+                document=existing_doc,
+                original_file=original_file,
+                new_emails=normalized_emails,
+                burn_policy=burn_policy,
+                admin_user=admin_user,
+                client_ip=client_ip,
+                user_agent=user_agent,
             )
+            reactivated._is_reactivated = True
+            return reactivated
+        raise ValidationError(_("Ya existe un documento registrado con este mismo hash SHA-256."))
+
+    dek: bytes = Fernet.generate_key()
+    fernet_dek = Fernet(dek)
+
+    original_file.seek(0)
+    original_bytes: bytes = original_file.read()
+    ciphertext_bytes: bytes = fernet_dek.encrypt(original_bytes)
+
+    server_key = get_server_fernet_key()
+    server_fernet = Fernet(server_key)
+    encrypted_dek_str: str = server_fernet.encrypt(dek).decode("utf-8")
+
+    filename = getattr(original_file, "name", "documento")
+    clean_filename = os.path.basename(filename)
+    encrypted_filename = f"{clean_filename}.enc"
+
+    document = EncryptedDocument(
+        original_filename=clean_filename,
+        file_hash=file_hash,
+        encrypted_dek=encrypted_dek_str,
+        allowed_emails=normalized_emails,
+        burn_policy=burn_policy or EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+        is_consumed=False,
+    )
+    document.encrypted_file.save(encrypted_filename, ContentFile(ciphertext_bytes), save=False)
+    document.save()
+
+    logger.info(
+        f"[FREEDEC AUDIT] Documento registrado exitosamente: id={document.pk} "
+        f"hash={document.file_hash[:12]}... política={document.burn_policy}"
+    )
+    document._is_reactivated = False
+    return document
+
+
+def request_document_access(
+    file_hash: str,
+    email: str,
+    client_ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Servicio de solicitud desatendida de acceso a documentos confidenciales.
+    Mitigación de enumeración y timing attacks con PBKDF2 simulado.
+    """
+    clean_hash = (file_hash or "").strip().lower()
+    clean_email = (email or "").strip().lower()
+
+    if not HASH_REGEX.match(clean_hash):
+        hashlib.pbkdf2_hmac("sha256", clean_email.encode("utf-8"), b"freedec_timing_salt", 100_000)
+        return True, GENERIC_ACCESS_MESSAGE
+
+    try:
+        normalized_email = validate_safe_email(clean_email)
+    except ValidationError:
+        hashlib.pbkdf2_hmac("sha256", b"invalid_email", b"freedec_timing_salt", 100_000)
+        return True, GENERIC_ACCESS_MESSAGE
+
+    document = EncryptedDocument.objects.filter(file_hash=clean_hash).first()
+
+    if not document:
+        hashlib.pbkdf2_hmac("sha256", normalized_email.encode("utf-8"), b"freedec_timing_salt", 100_000)
+        return True, GENERIC_ACCESS_MESSAGE
+
+    # Verificación de autorización previa (Mitigación de enumeración y fuga de metadatos)
+    if not document.is_email_authorized(normalized_email):
+        hashlib.pbkdf2_hmac("sha256", normalized_email.encode("utf-8"), b"freedec_timing_salt", 100_000)
+        return True, GENERIC_ACCESS_MESSAGE
+
+    # Caso 1: El documento ya fue consumido por completo (notificar exclusivamente al autorizado)
+    if document.is_consumed:
+        consumed_at_str = (
+            document.consumed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            if document.consumed_at
+            else _("fecha no registrada")
         )
-        if not normalized_emails:
-            normalized_emails = ["destinatario@freedec.local"]
-
-        # Validar política de destrucción
-        valid_policies = [p[0] for p in EncryptedDocument.BurnPolicy.choices]
-        chosen_policy = burn_policy if burn_policy in valid_policies else EncryptedDocument.BurnPolicy.FIRST_ACCESS
-
-        # 6. Para cada correo en allowed_emails: generar secreto de usuario y construir sobre digital
-        user_envelopes = {}
-        for email in normalized_emails:
-            user_secret = Fernet.generate_key()
-            encrypted_dek = Fernet(user_secret).encrypt(dek).decode("utf-8")
-            encrypted_user_secret = self.crypto_service.encrypt_bytes(user_secret).decode("utf-8")
-            user_envelopes[email] = {
-                "encrypted_dek": encrypted_dek,
-                "encrypted_user_secret": encrypted_user_secret,
-            }
-
-        # 7. Creación atómica del registro
-        document = EncryptedDocument.objects.create(
-            original_filename=safe_original_name,
-            file_hash=file_hash,
-            encrypted_file=encrypted_content,
-            encrypted_file_hash=encrypted_file_hash,
-            admin_encrypted_dek=admin_encrypted_dek,
-            user_envelopes=user_envelopes,
-            allowed_emails=normalized_emails,
-            burn_policy=chosen_policy,
-            consumed_recipients=[],
-            is_consumed=False,
+        consumed_by_str = document.consumed_by or _("un usuario autorizado")
+        
+        post_consume_message = (
+            f"El documento con huella digital SHA-256 {document.file_hash} ya fue retirado de la pasarela "
+            f"el {consumed_at_str} por {consumed_by_str}. Por motivos de seguridad (destrucción tras entrega), "
+            f"solicite una copia directamente a dicha dirección."
         )
-
-        logger.info(
-            f"[FREEDEC AUDIT] Documento '{safe_original_name}' registrado exitosamente con DEK multi-usuario y política '{chosen_policy}'. Hash SHA-256: {file_hash}"
-        )
-        return document, False
-
-    def request_document_access(
-        self,
-        uploaded_file,
-        recipient_email: str,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        base_url: Optional[str] = None,
-    ) -> Tuple[bool, str]:
-        """
-        Procesa la solicitud de acceso a un documento subiendo el archivo .enc y proporcionando el correo.
-        Genera Enlace Mágico / OTP de 15 minutos o notifica si el archivo ya fue retirado (Requisito 3).
-        """
-        max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
-        if hasattr(uploaded_file, "size") and uploaded_file.size > max_size:
-            return False, _("El archivo supera el tamaño máximo permitido.")
-
-        safe_generic_response = _(
-            "Si el archivo y el correo electrónico coinciden con un documento activo y autorizado, "
-            "se ha enviado un enlace de acceso y un código OTP a su bandeja de entrada."
-        )
-
-        try:
-            normalized_email = validate_safe_email(recipient_email)
-        except ValidationError:
-            return True, safe_generic_response
-
-        # Leer archivo y calcular hash SHA-256
-        uploaded_file.seek(0)
-        file_bytes = uploaded_file.read()
-        uploaded_file.seek(0)
-        if not file_bytes:
-            return True, safe_generic_response
-
-        calculated_hash = hashlib.sha256(file_bytes).hexdigest()
-
-        # Localizar documento por hash del archivo cifrado (.enc) o por hash del original
-        document = EncryptedDocument.objects.filter(encrypted_file_hash=calculated_hash).first()
-        if not document:
-            docs = EncryptedDocument.objects.filter(file_hash=calculated_hash).order_by("-created_at")
-            if docs.exists():
-                active_authorized = [d for d in docs.filter(is_consumed=False) if d.is_email_authorized(normalized_email)]
-                if active_authorized:
-                    document = active_authorized[0]
-                else:
-                    active_any = docs.filter(is_consumed=False).first()
-                    if active_any:
-                        document = active_any
-                    else:
-                        consumed_authorized = [d for d in docs.filter(is_consumed=True) if d.is_email_authorized(normalized_email)]
-                        document = consumed_authorized[0] if consumed_authorized else docs.first()
-
-        if not document:
-            logger.warning(
-                f"[FREEDEC SECURITY] Solicitud de acceso fallida: No existe documento para el hash proporcionado."
-            )
-            return True, safe_generic_response
-
-        # Si el documento ya fue consumido: Notificar por correo del retiro
-        if document.is_consumed:
-            try:
-                DocumentAccessLog.objects.create(
-                    document=document,
-                    email=normalized_email,
-                    action="intento_post_consumo",
-                    ip_address=client_ip,
-                    user_agent=user_agent,
-                )
-            except Exception as exc:
-                logger.warning(f"[FREEDEC] Error al registrar intento post-consumo: {exc}")
-
-            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
-            consumed_at_str = (
-                document.consumed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-                if document.consumed_at
-                else _("recientemente")
-            )
-            consumed_by_user = document.consumed_by or _("otro usuario autorizado")
-            subject = f"[Freedec] Archivo ya retirado: {doc_name}"
-            body = (
-                _("Estimado usuario,") + "\n\n"
-                + f"El documento '{doc_name}' ya fue retirado por {consumed_by_user} el {consumed_at_str}. Solicite una copia directamente a esa dirección.\n\n"
-                + _("Atentamente,") + "\n"
-                + _("Sistema Automatizado Freedec")
-            )
-            from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local")
-            try:
-                send_mail(
-                    subject=subject,
-                    message=body,
-                    from_email=from_email,
-                    recipient_list=[normalized_email],
-                    fail_silently=False,
-                )
-                logger.info(f"[FREEDEC AUDIT] Notificación de archivo retirado enviada a '{normalized_email}'.")
-            except Exception as exc:
-                logger.error(f"[FREEDEC ERROR] Fallo al enviar notificación de archivo retirado: {exc}")
-
-            return True, safe_generic_response
-
-        # Verificar lista de autorizados
-        if not document.is_email_authorized(normalized_email):
-            logger.warning(
-                f"[FREEDEC SECURITY] Correo '{normalized_email}' no autorizado para documento {document.pk}."
-            )
-            return True, safe_generic_response
-
-        # Si la política es ALL_RECIPIENTS y este destinatario ya consumió su copia individual
-        if (
-            document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
-            and document.is_email_consumed(normalized_email)
-        ):
-            try:
-                DocumentAccessLog.objects.create(
-                    document=document,
-                    email=normalized_email,
-                    action="intento_post_consumo",
-                    ip_address=client_ip,
-                    user_agent=user_agent,
-                )
-            except Exception as exc:
-                logger.warning(f"[FREEDEC] Error al registrar intento post-consumo individual: {exc}")
-
-            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
-            subject = f"[Freedec] Copia ya descargada: {doc_name}"
-            body = (
-                _("Estimado usuario,") + "\n\n"
-                + (_("Usted ya ha descargado previamente una copia del documento '%(doc_name)s'. Cada destinatario autorizado dispone de una única descarga permitida.") % {"doc_name": doc_name}) + "\n\n"
-                + _("Atentamente,") + "\n"
-                + _("Sistema Automatizado Freedec")
-            )
-            from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local")
-            try:
-                send_mail(
-                    subject=subject,
-                    message=body,
-                    from_email=from_email,
-                    recipient_list=[normalized_email],
-                    fail_silently=False,
-                )
-                logger.info(f"[FREEDEC AUDIT] Notificación de copia ya descargada enviada a '{normalized_email}'.")
-            except Exception as exc:
-                logger.error(f"[FREEDEC ERROR] Fallo al enviar notificación de copia ya descargada: {exc}")
-
-            return True, safe_generic_response
-
-        # Generar token url-safe de alta entropía y código OTP de 6 dígitos
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        otp_code = f"{secrets.randbelow(1000000):06d}"
-        expires_at = timezone.now() + timezone.timedelta(minutes=15)
-
-        AccessVerificationToken.objects.create(
-            document=document,
-            email=normalized_email,
-            token_hash=token_hash,
-            otp_code=otp_code,
-            expires_at=expires_at,
-            is_used=False,
-        )
-
-        # Construir URL del Magic Link
-        from django.urls import reverse
-        try:
-            consume_path = reverse("freedec:gui-consume")
-        except Exception:
-            consume_path = "/freedec/consumir/"
-
-        if base_url:
-            magic_link = f"{base_url.rstrip('/')}{consume_path}?t={raw_token}"
-        else:
-            magic_link = f"{consume_path}?t={raw_token}"
-
-        doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
-        subject = f"[Freedec] Enlace de acceso y código OTP: {doc_name}"
-        body = (
-            _("Estimado usuario,") + "\n\n"
-            + (_("Se ha solicitado el acceso y descifrado para el documento: %(doc_name)s") % {"doc_name": doc_name}) + "\n\n"
-            + _("Puede descargarlo de forma inmediata mediante el siguiente enlace seguro (válido durante 15 minutos):") + "\n"
-            + f"{magic_link}\n\n"
-            + _("O si lo prefiere, introduzca manualmente el siguiente código OTP en el portal:") + "\n"
-            + f"CÓDIGO OTP: {otp_code}\n\n"
-            + _("⚠️ POLÍTICA DE DESTRUCCIÓN INMEDIATA (Burn-after-read):") + "\n"
-            + _("Al hacer clic en el enlace o ingresar el código OTP, el archivo se descargará en su equipo y se ELIMINARÁ FÍSICAMENTE DE FORMA IRREVERSIBLE de nuestros servidores.") + "\n\n"
-            + _("Atentamente,") + "\n"
-            + _("Sistema Automatizado Freedec")
-        )
-        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local")
 
         try:
             send_mail(
-                subject=subject,
-                message=body,
-                from_email=from_email,
+                subject=_("Aviso de Seguridad: Documento ya retirado de la pasarela"),
+                message=post_consume_message,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
+                recipient_list=[normalized_email],
+                fail_silently=True,
+            )
+        except Exception as exc:
+            logger.error(f"[FREEDEC ERROR] No se pudo enviar notificación post-consumo: {exc}")
+
+        DocumentAccessLog.objects.create(
+            document=document,
+            email=normalized_email,
+            action=DocumentAccessLog.Action.INTENTO_POST_CONSUMO,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+        return True, GENERIC_ACCESS_MESSAGE
+
+    # Caso 2: Política ALL_RECIPIENTS y el destinatario ya descargó su copia individual
+    if (
+        document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
+        and document.is_email_consumed(normalized_email)
+    ):
+        DocumentAccessLog.objects.create(
+            document=document,
+            email=normalized_email,
+            action=DocumentAccessLog.Action.INTENTO_POST_CONSUMO,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+        doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+        try:
+            send_mail(
+                subject=f"[Freedec] Copia ya descargada: {doc_name}",
+                message=(
+                    f"Usted ya ha descargado previamente una copia del documento '{doc_name}'. "
+                    f"Cada destinatario autorizado dispone de una única descarga permitida."
+                ),
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
+                recipient_list=[normalized_email],
+                fail_silently=True,
+            )
+        except Exception as exc:
+            logger.error(f"[FREEDEC ERROR] Fallo al enviar aviso de copia consumida: {exc}")
+        return True, GENERIC_ACCESS_MESSAGE
+
+    # Caso 3: Documento activo y correo en lista blanca
+    if document.is_email_authorized(normalized_email):
+        AccessVerificationToken.objects.filter(
+            document=document,
+            email=normalized_email,
+            is_used=False,
+        ).update(is_used=True)
+
+        otp_code = "".join(secrets.choice("0123456789") for _ in range(6))
+        expires_at = timezone.now() + timezone.timedelta(minutes=15)
+
+        token = AccessVerificationToken.objects.create(
+            document=document,
+            email=normalized_email,
+            otp_code=otp_code,
+            expires_at=expires_at,
+            is_used=False,
+            failed_attempts=0,
+        )
+
+        try:
+            redeem_path = reverse("freedec:redeem-otp")
+        except Exception:
+            redeem_path = "/freedec/canjear/"
+
+        query_params = f"?hash={document.file_hash}&email={normalized_email}"
+        redeem_url = f"{base_url.rstrip('/')}{redeem_path}{query_params}" if base_url else f"{redeem_path}{query_params}"
+
+        policy_note = (
+            "AVISO DE SEGURIDAD (Destrucción tras acceso de todos): El archivo permanecerá disponible hasta que todos los destinatarios hayan accedido."
+            if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
+            else "AVISO DE SEGURIDAD (Burn-After-Read): Al primer canje exitoso, el archivo almacenado en disco será destruido físicamente de forma permanente."
+        )
+
+        email_subject = _("Código de verificación OTP para documento confidencial - Freedec")
+        email_body = (
+            f"Ha solicitado el canje del documento confidencial identificado con SHA-256:\n"
+            f"{document.file_hash}\n\n"
+            f"Su código de verificación OTP de un solo uso es:\n"
+            f"{otp_code}\n\n"
+            f"Validez estricta: 15 minutos.\n"
+            f"Intentos máximos permitidos: 3 intentos.\n\n"
+            f"Puede acceder directamente para canjearlo en el siguiente enlace:\n"
+            f"{redeem_url}\n\n"
+            f"{policy_note}"
+        )
+
+        try:
+            send_mail(
+                subject=email_subject,
+                message=email_body,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
                 recipient_list=[normalized_email],
                 fail_silently=False,
             )
-            logger.info(f"[FREEDEC AUDIT] Enlace Mágico y OTP enviados a '{normalized_email}' para '{doc_name}'.")
         except Exception as exc:
-            logger.error(f"[FREEDEC ERROR] Fallo al enviar Magic Link/OTP: {exc}")
-            return False, _("Error al enviar el correo electrónico con las credenciales de acceso.")
+            logger.error(f"[FREEDEC ERROR] Fallo al enviar correo con código OTP: {exc}")
 
-        # Registrar auditoría de solicitud de acceso
-        try:
+        DocumentAccessLog.objects.create(
+            document=document,
+            email=normalized_email,
+            action=DocumentAccessLog.Action.OTP_ENVIADO,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+        return True, GENERIC_ACCESS_MESSAGE
+
+    # Correo no autorizado: PBKDF2 simulado y respuesta neutra
+    hashlib.pbkdf2_hmac("sha256", normalized_email.encode("utf-8"), b"freedec_timing_salt", 100_000)
+    return True, GENERIC_ACCESS_MESSAGE
+
+
+def consume_document_with_otp(
+    file_hash: str,
+    email: str,
+    entered_otp: str,
+    client_ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> Tuple[bool, bytes, str, str]:
+    """
+    Servicio de canje, descifrado en memoria y gestión de política destructiva por OTP.
+    Aplica política BurnPolicy.FIRST_ACCESS o BurnPolicy.ALL_RECIPIENTS.
+    """
+    clean_hash = (file_hash or "").strip().lower()
+    clean_email = (email or "").strip().lower()
+    clean_otp = (entered_otp or "").strip()
+
+    token = (
+        AccessVerificationToken.objects.select_related("document")
+        .filter(
+            document__file_hash__iexact=clean_hash,
+            email__iexact=clean_email,
+            is_used=False,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    if not token or not token.is_valid():
+        return False, b"", "", _("Código inválido o expirado.")
+
+    document = token.document
+
+    if document.is_consumed:
+        token.is_used = True
+        token.save(update_fields=["is_used"])
+        return False, b"", "", _("El documento ya fue canjeado y destruido previamente.")
+
+    if (
+        document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
+        and document.is_email_consumed(token.email)
+    ):
+        token.is_used = True
+        token.save(update_fields=["is_used"])
+        return (
+            False,
+            b"",
+            "",
+            _("Usted ya ha descargado previamente una copia de este documento. Cada destinatario autorizado dispone de una única descarga permitida."),
+        )
+
+    is_match = secrets.compare_digest(token.otp_code.encode("utf-8"), clean_otp.encode("utf-8"))
+
+    if not is_match:
+        token.register_failed_attempt()
+        if token.failed_attempts >= 3:
             DocumentAccessLog.objects.create(
                 document=document,
-                email=normalized_email,
-                action="solicitud_acceso",
+                email=token.email,
+                action=DocumentAccessLog.Action.OTP_INVALIDO_BLOQUEADO,
                 ip_address=client_ip,
                 user_agent=user_agent,
             )
-        except Exception as exc:
-            logger.warning(f"[FREEDEC] Error al registrar solicitud_acceso: {exc}")
-
-        return True, safe_generic_response
-
-    def consume_and_burn_document(
-        self,
-        token_str: Optional[str] = None,
-        otp_code: Optional[str] = None,
-        email: Optional[str] = None,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str], str]:
-        """
-        Valida el Magic Link o código OTP, descifra la DEK del sobre digital del usuario,
-        descifra el archivo original, lo entrega al usuario y DESTRUYE FÍSICAMENTE el binario
-        en disco marcando el documento como consumido (Burn-After-Read).
-        """
-        token_obj = None
-
-        if token_str and token_str.strip():
-            t_hash = hashlib.sha256(token_str.strip().encode("utf-8")).hexdigest()
-            token_obj = AccessVerificationToken.objects.filter(token_hash=t_hash).select_related("document").first()
-        elif otp_code and otp_code.strip():
-            clean_otp = otp_code.strip()
-            qs = AccessVerificationToken.objects.filter(otp_code=clean_otp, is_used=False).select_related("document")
-            if email and email.strip():
-                qs = qs.filter(email=email.strip().lower())
-            token_obj = qs.first()
-
-        if not token_obj:
-            return False, None, None, None, _("El enlace de acceso o código OTP es inválido.")
-
-        if token_obj.is_used:
-            return False, None, None, None, _("Este enlace de acceso o código OTP ya ha sido utilizado previamente.")
-
-        if token_obj.is_expired():
-            return False, None, None, None, _("El enlace de acceso o código OTP ha expirado (límite estricto de 15 minutos).")
-
-        document = token_obj.document
-        if document.is_consumed:
-            token_obj.is_used = True
-            token_obj.save(update_fields=["is_used"])
-            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
             return (
                 False,
-                None,
-                None,
-                None,
-                f"El documento '{doc_name}' ya fue retirado por {document.consumed_by} el {document.consumed_at.strftime('%Y-%m-%d %H:%M:%S UTC') if document.consumed_at else ''}. Solicite una copia directamente a esa dirección.",
+                b"",
+                "",
+                _("Código inválido. Ha superado el número máximo de 3 intentos y el acceso ha sido bloqueado."),
             )
-
-        user_email = token_obj.email
-
-        if (
-            document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
-            and document.is_email_consumed(user_email)
-        ):
-            token_obj.is_used = True
-            token_obj.save(update_fields=["is_used"])
-            doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+        else:
+            remaining = 3 - token.failed_attempts
             return (
                 False,
-                None,
-                None,
-                None,
-                _("Usted ya ha descargado previamente una copia de este documento. Cada destinatario autorizado dispone de una única descarga permitida."),
+                b"",
+                "",
+                _("Código de verificación incorrecto. Intentos restantes: %(remaining)d.")
+                % {"remaining": remaining},
             )
 
-        if not document.encrypted_file:
-            return False, None, None, None, _("El archivo cifrado no se encuentra en el almacenamiento.")
+    try:
+        with transaction.atomic():
+            token.is_used = True
+            token.save(update_fields=["is_used"])
 
-        envelope = document.user_envelopes.get(user_email)
-        if not envelope or "encrypted_dek" not in envelope or "encrypted_user_secret" not in envelope:
-            return False, None, None, None, _("No se encontró un sobre digital válido para el usuario solicitante.")
+            server_key = get_server_fernet_key()
+            server_fernet = Fernet(server_key)
+            dek_bytes = server_fernet.decrypt(document.encrypted_dek.encode("utf-8"))
 
-        # Recuperar secreto del usuario con FREEDEC_FERNET_KEY
-        try:
-            user_secret = self.crypto_service.decrypt_bytes(envelope["encrypted_user_secret"].encode("utf-8"))
-        except Exception as exc:
-            logger.error(f"[FREEDEC SECURITY] Error al descifrar secreto de usuario: {exc}")
-            return False, None, None, None, _("Error interno al abrir el sobre digital.")
+            if not document.encrypted_file:
+                return False, b"", "", _("El archivo cifrado no está disponible en el servidor.")
 
-        # Descifrar la DEK con el secreto del usuario
-        try:
-            dek = Fernet(user_secret).decrypt(envelope["encrypted_dek"].encode("utf-8"))
-        except Exception as exc:
-            logger.error(f"[FREEDEC SECURITY] Error al descifrar DEK con secreto de usuario: {exc}")
-            return False, None, None, None, _("Fallo criptográfico al descifrar la Clave Maestra de Datos.")
+            document.encrypted_file.seek(0)
+            encrypted_file_bytes = document.encrypted_file.read()
 
-        # Leer archivo cifrado y descifrar contenido
-        document.encrypted_file.seek(0)
-        enc_bytes = document.encrypted_file.read()
-        document.encrypted_file.seek(0)
+            dek_fernet = Fernet(dek_bytes)
+            decrypted_bytes = dek_fernet.decrypt(encrypted_file_bytes)
 
-        try:
-            decrypted_bytes = Fernet(dek).decrypt(enc_bytes)
-        except Exception as exc:
-            logger.error(f"[FREEDEC SECURITY] Error al descifrar binario con DEK: {exc}")
-            return False, None, None, None, _("Error al procesar el descifrado del documento.")
+            consumed_list = list(document.consumed_recipients or [])
+            if token.email not in [e.strip().lower() for e in consumed_list if isinstance(e, str)]:
+                consumed_list.append(token.email)
+            document.consumed_recipients = consumed_list
 
-        # Detectar extensión y tipo MIME
-        ext, mimetype = detect_file_extension_and_mimetype(decrypted_bytes)
-        suggested_filename = document.original_filename or f"documento_{document.file_hash[:8]}{ext}"
-
-        # 1. Marcar token como utilizado
-        token_obj.is_used = True
-        token_obj.save(update_fields=["is_used"])
-
-        now = timezone.now()
-        document.last_accessed_at = now
-        document.last_accessed_by = user_email
-        document.access_count += 1
-
-        # Registrar destinatario en lista de consumos
-        consumed_list = list(document.consumed_recipients or [])
-        if user_email not in [e.strip().lower() for e in consumed_list if isinstance(e, str)]:
-            consumed_list.append(user_email)
-        document.consumed_recipients = consumed_list
-
-        should_burn = False
-        if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS:
-            if document.are_all_recipients_consumed():
-                should_burn = True
-                document.consumed_by = f"todos los destinatarios autorizados ({len(consumed_list)}/{len(document.allowed_emails)})"
+            should_burn = False
+            if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS:
+                if document.are_all_recipients_consumed():
+                    should_burn = True
+                    document.consumed_by = f"todos los destinatarios autorizados ({len(consumed_list)}/{len(document.allowed_emails)})"
+                else:
+                    should_burn = False
+                    document.consumed_by = f"Parcial: {len(consumed_list)}/{len(document.allowed_emails)}"
             else:
-                should_burn = False
-        else:
-            # FIRST_ACCESS
-            should_burn = True
-            document.consumed_by = user_email
+                should_burn = True
+                document.consumed_by = token.email
 
-        if should_burn:
-            # 2. Borrado seguro físico del binario en disco
-            if document.encrypted_file:
-                try:
-                    document.encrypted_file.delete(save=False)
-                    logger.info(f"[FREEDEC AUDIT] Archivo físico (.enc) eliminado de disco tras descarga final por '{user_email}'.")
-                except Exception as exc:
-                    logger.warning(f"[FREEDEC WARNING] Error al eliminar archivo físico: {exc}")
+            if should_burn:
+                shred_and_delete_file(document.encrypted_file)
+                document.is_consumed = True
+                document.consumed_at = timezone.now()
+                document.save(update_fields=["is_consumed", "consumed_by", "consumed_at", "consumed_recipients"])
+                log_action = DocumentAccessLog.Action.DESCIFRADO_EXITOSO_BURN
+                logger.info(
+                    f"[FREEDEC AUDIT] Destrucción física final completada para documento {document.file_hash[:12]}... por {token.email}."
+                )
+            else:
+                document.save(update_fields=["consumed_by", "consumed_recipients"])
+                log_action = DocumentAccessLog.Action.DESCIFRADO_PARCIAL_PRESERVADO
+                logger.info(
+                    f"[FREEDEC AUDIT] Descifrado parcial preservado para documento {document.file_hash[:12]}... por {token.email}."
+                )
 
-            # 3. Actualizar registro en base de datos: is_consumed, consumed_by, consumed_at
-            document.is_consumed = True
-            document.consumed_at = now
-            document.save(update_fields=[
-                "is_consumed", "consumed_by", "consumed_at",
-                "last_accessed_at", "last_accessed_by", "access_count", "encrypted_file",
-                "consumed_recipients",
-            ])
-            log_action = "descifrado_completado_burn"
-            logger.info(
-                f"[FREEDEC AUDIT] Documento '{suggested_filename}' consumido y destruido con éxito tras descarga final por '{user_email}'."
-            )
-        else:
-            # Se preserva el archivo físico porque aún restan destinatarios por acceder
-            document.save(update_fields=[
-                "last_accessed_at", "last_accessed_by", "access_count", "consumed_recipients",
-            ])
-            log_action = "descifrado_parcial_preservado"
-            logger.info(
-                f"[FREEDEC AUDIT] Documento '{suggested_filename}' descargado por '{user_email}'. Archivo preservado en disco ({len(consumed_list)}/{len(document.allowed_emails)} destinatarios)."
-            )
-
-        # 4. Registrar en DocumentAccessLog
-        try:
             DocumentAccessLog.objects.create(
                 document=document,
-                email=user_email,
+                email=token.email,
                 action=log_action,
                 ip_address=client_ip,
                 user_agent=user_agent,
             )
-        except Exception as exc:
-            logger.warning(f"[FREEDEC] Error al registrar {log_action}: {exc}")
 
-        return True, decrypted_bytes, suggested_filename, mimetype, _("Documento descifrado correctamente.")
+        return True, decrypted_bytes, document.original_filename, _("Documento descifrado con éxito.")
+
+    except Exception as exc:
+        logger.error(f"[FREEDEC ERROR] Fallo durante descifrado y canje del documento: {exc}")
+        return False, b"", "", _("Se produjo un error al procesar el descifrado del documento.")
+
+
+def admin_decrypt_document(
+    document: EncryptedDocument,
+    admin_user: Any = None,
+    client_ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> Tuple[bool, bytes, str, str]:
+    """
+    Descarga de auditoría administrativa preservada:
+    Permite al personal de auditoría descargar una copia descifrada mientras el documento
+    NO haya sido consumido, SIN destruir el archivo ni marcar is_consumed = True.
+    """
+    if document.is_consumed:
+        return False, b"", "", _("El documento ya ha sido consumido y destruido del servidor.")
+
+    if not document.encrypted_file:
+        return False, b"", "", _("El archivo cifrado no está disponible.")
+
+    try:
+        server_key = get_server_fernet_key()
+        server_fernet = Fernet(server_key)
+        dek_bytes = server_fernet.decrypt(document.encrypted_dek.encode("utf-8"))
+
+        document.encrypted_file.seek(0)
+        ciphertext = document.encrypted_file.read()
+
+        dek_fernet = Fernet(dek_bytes)
+        decrypted_bytes = dek_fernet.decrypt(ciphertext)
+
+        admin_identifier = (
+            getattr(admin_user, "email", None)
+            or getattr(admin_user, "username", None)
+            or str(admin_user or "admin_auditor")
+        )
+
+        DocumentAccessLog.objects.create(
+            document=document,
+            email=admin_identifier,
+            action=DocumentAccessLog.Action.ADMIN_DESCARGA_PRESERVADA,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+
+        logger.info(
+            f"[FREEDEC AUDIT] Descarga administrativa preservada realizada por '{admin_identifier}' "
+            f"para documento {document.file_hash[:12]}..."
+        )
+        return True, decrypted_bytes, document.original_filename, _("Descarga de auditoría completada.")
+
+    except Exception as exc:
+        logger.error(f"[FREEDEC ERROR] Error en descarga de auditoría administrativa: {exc}")
+        return False, b"", "", _("Error al descifrar el documento para auditoría.")
+
+
+class DocumentManagementService:
+    """
+    Clase de servicio unificada para operaciones sobre documentos confidenciales.
+    """
+
+    def upload_and_encrypt_document(
+        self,
+        original_file: Any,
+        allowed_emails: Union[List[str], str, Any],
+        burn_policy: str = EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+        reopen_existing: bool = False,
+        admin_user: Any = None,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        **kwargs: Any,
+    ) -> EncryptedDocument:
+        return upload_and_encrypt_document(
+            original_file=original_file,
+            allowed_emails=allowed_emails,
+            burn_policy=burn_policy,
+            reopen_existing=reopen_existing,
+            admin_user=admin_user,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
+
+    def reactivate_document(
+        self,
+        document: EncryptedDocument,
+        original_file: Any,
+        new_emails: Union[List[str], str, Any] = None,
+        burn_policy: Optional[str] = None,
+        admin_user: Any = None,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> EncryptedDocument:
+        return reactivate_document(
+            document=document,
+            original_file=original_file,
+            new_emails=new_emails,
+            burn_policy=burn_policy,
+            admin_user=admin_user,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
+
+    def request_document_access(
+        self,
+        file_hash: str,
+        email: str,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        base_url: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Tuple[bool, str]:
+        return request_document_access(
+            file_hash=file_hash,
+            email=email,
+            client_ip=client_ip,
+            user_agent=user_agent,
+            base_url=base_url,
+        )
+
+    def consume_document_with_otp(
+        self,
+        file_hash: str,
+        email: str,
+        entered_otp: str,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Tuple[bool, bytes, str, str]:
+        return consume_document_with_otp(
+            file_hash=file_hash,
+            email=email,
+            entered_otp=entered_otp,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
 
     def admin_decrypt_document(
         self,
         document: EncryptedDocument,
-        admin_user,
+        admin_user: Any = None,
         client_ip: Optional[str] = None,
         user_agent: Optional[str] = None,
-    ) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str], str]:
-        """
-        Descifra el archivo original para un administrador autenticado sin destruir el archivo
-        ni marcarlo como consumido (Audit Bypass).
-        Registra el evento en DocumentAccessLog con action='admin_inspeccion_preservada'.
-        """
-        if document.is_consumed:
-            return (
-                False,
-                None,
-                None,
-                None,
-                _(
-                    "El documento ya fue consumido por %(user)s el %(date)s. El archivo físico fue eliminado."
-                )
-                % {
-                    "user": document.consumed_by or _("un usuario"),
-                    "date": (
-                        document.consumed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-                        if document.consumed_at
-                        else ""
-                    ),
-                },
-            )
-
-        if not document.encrypted_file:
-            return False, None, None, None, _("No existe un archivo cifrado en almacenamiento.")
-
-        try:
-            storage = document.encrypted_file.storage
-            if not storage.exists(document.encrypted_file.name):
-                return False, None, None, None, _("El archivo físico no se encuentra en el almacenamiento.")
-        except Exception:
-            pass
-
-        # Recuperar DEK con la clave de servidor
-        dek = None
-        if document.admin_encrypted_dek:
-            try:
-                dek = self.crypto_service.decrypt_bytes(document.admin_encrypted_dek.encode("utf-8"))
-            except Exception as exc:
-                logger.error(f"[FREEDEC SECURITY] Error al descifrar admin_encrypted_dek: {exc}")
-
-        if not dek:
-            return False, None, None, None, _("No se pudo recuperar la clave de descifrado administrativa.")
-
-        document.encrypted_file.seek(0)
-        enc_bytes = document.encrypted_file.read()
-        document.encrypted_file.seek(0)
-
-        try:
-            decrypted_bytes = Fernet(dek).decrypt(enc_bytes)
-        except Exception as exc:
-            logger.error(f"[FREEDEC SECURITY] Fallo en el descifrado administrativo: {exc}")
-            return False, None, None, None, _("Fallo criptográfico al descifrar el documento.")
-
-        admin_identifier = (
-            getattr(admin_user, "email", None)
-            or getattr(admin_user, "username", "staff_admin")
-        )
-        try:
-            DocumentAccessLog.objects.create(
-                document=document,
-                email=admin_identifier,
-                action="admin_inspeccion_preservada",
-                ip_address=client_ip,
-                user_agent=user_agent,
-            )
-        except Exception as exc:
-            logger.warning(f"[FREEDEC] Error al registrar admin_inspeccion_preservada: {exc}")
-
-        ext, mimetype = detect_file_extension_and_mimetype(decrypted_bytes)
-        suggested_filename = document.original_filename or f"documento_{document.file_hash[:8]}{ext}"
-
-        logger.info(
-            f"[FREEDEC AUDIT] Descarga administrativa preservada efectuada por '{admin_identifier}' para '{suggested_filename}'."
-        )
-        return True, decrypted_bytes, suggested_filename, mimetype, _("Documento descifrado correctamente.")
-
-    # --------------------------------------------------------------------------
-    # ALIASES DE COMPATIBILIDAD
-    # --------------------------------------------------------------------------
-    def verify_and_dispatch_password(
-        self,
-        uploaded_file,
-        access_code: Optional[str] = None,
-        recipient_email: Optional[str] = None,
-        client_ip: Optional[str] = None,
-        decrypt_url: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        **kwargs,
-    ) -> Tuple[bool, str]:
-        """Alias de compatibilidad que delega en request_document_access."""
-        email = recipient_email or kwargs.get("email") or ""
-        return self.request_document_access(
-            uploaded_file=uploaded_file,
-            recipient_email=email,
+    ) -> Tuple[bool, bytes, str, str]:
+        return admin_decrypt_document(
+            document=document,
+            admin_user=admin_user,
             client_ip=client_ip,
             user_agent=user_agent,
         )
 
-    def identify_and_decrypt(
-        self,
-        encrypted_file_obj,
-        password: str,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str], str]:
-        """Alias de compatibilidad: si se envía un token u OTP en el campo password."""
-        return self.consume_and_burn_document(
-            token_str=password,
-            otp_code=password if len(password.strip()) == 6 else None,
-            client_ip=client_ip,
-            user_agent=user_agent,
-        )
-
-    def decrypt_document_with_password(
-        self,
-        encrypted_file_obj,
-        password: str,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str], str]:
-        return self.identify_and_decrypt(
-            encrypted_file_obj=encrypted_file_obj,
-            password=password,
-            client_ip=client_ip,
-            user_agent=user_agent,
-        )
+    def shred_and_delete_file(self, file_field: Any) -> bool:
+        return shred_and_delete_file(file_field)

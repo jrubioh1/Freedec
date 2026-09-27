@@ -1,9 +1,9 @@
 import logging
-import secrets
-from django.contrib.auth.hashers import check_password
+from typing import Any, List
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
@@ -11,158 +11,127 @@ logger = logging.getLogger(__name__)
 
 class EncryptedDocument(models.Model):
     """
-    Modelo de almacenamiento seguro de documentos cifrados.
+    Modelo de almacenamiento de documentos confidenciales cifrados.
     
-    Principios de ciberseguridad aplicados:
-    1. Identificación por Hashing Criptográfico (file_hash):
-       - Identifica unívocamente el documento mediante el resumen SHA-256 de su contenido original.
-       - Elimina identificadores secuenciales o nombres predecibles, impidiendo ataques de enumeración (IDOR).
-    2. Almacenamiento Cifrado (encrypted_file):
-       - El archivo se almacena en el disco ya cifrado con AES-128-CBC + HMAC-SHA256 (Fernet).
-       - Incluso con acceso físico o no autorizado al sistema de archivos, el contenido es inaccesible.
-    3. Almacenamiento Zero-Knowledge del Código de Acceso (access_code):
-       - Almacena el hash criptográfico robusto (PBKDF2/SHA-256) del access_code entregado al admin.
-       - Si la base de datos se filtra, los códigos de acceso no pueden ser recuperados en claro.
-    4. Cifrado de Contraseña en Reposo (encrypted_password):
-       - La contraseña o clave interna de descifrado permanece siempre cifrada con la clave maestra Fernet.
-    5. Lista Blanca de Destinatarios (allowed_emails):
-       - Almacena las direcciones de correo autorizadas, siempre normalizadas en minúsculas.
+    Criterios de seguridad y arquitectura:
+    1. Cero transporte del binario por el cliente: El identificador unívoco
+       y prueba de trámite es exclusivamente el hash SHA-256 del contenido original.
+    2. Zero Human-Readable Passwords: No existen contraseñas humanas.
+       El cifrado se realiza con una Clave Maestra de Datos (DEK) protegida a su vez
+       con settings.FREEDEC_FERNET_KEY (Envelope Encryption).
+    3. Burn-After-Read con opciones de política:
+       - FIRST_ACCESS: Destrucción al primer acceso de cualquiera.
+       - ALL_RECIPIENTS: Destrucción física cuando todos los autorizados hayan accedido.
+    4. Reactivación y reapertura por hash idéntico conservando la trazabilidad.
     """
 
-    original_filename = models.CharField(
-        max_length=255,
-        default="documento",
-        verbose_name=_("Nombre original del archivo"),
-        help_text=_("Nombre del archivo original subido por el administrador."),
-    )
-    file_hash = models.CharField(
-        max_length=64,
-        db_index=True,
-        verbose_name=_("Hash SHA-256"),
-        help_text=_("Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar."),
-    )
-    encrypted_file = models.FileField(
-        upload_to="encrypted_docs/",
-        verbose_name=_("Archivo cifrado"),
-        help_text=_("Archivo binario cifrado en reposo con Fernet (AES-128-CBC + HMAC)."),
-    )
-    encrypted_file_hash = models.CharField(
-        max_length=64,
-        blank=True,
-        null=True,
-        db_index=True,
-        verbose_name=_("Hash SHA-256 del archivo cifrado"),
-        help_text=_("Hash SHA-256 hexadecimal del archivo .enc en reposo para búsqueda directa."),
-    )
-    admin_encrypted_dek = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name=_("DEK cifrada para Administrador"),
-        help_text=_("Clave Maestra (DEK) cifrada con FREEDEC_FERNET_KEY para auditoría y descifrado preservado."),
-    )
-    user_envelopes = models.JSONField(
-        default=dict,
-        blank=True,
-        verbose_name=_("Sobres digitales de usuario"),
-        help_text=_("Sobres digitales de la Clave Maestra (DEK) indexados por email normalizado."),
-    )
-    allowed_emails = models.JSONField(
-        default=list,
-        verbose_name=_("Correos autorizados"),
-        help_text=_("Lista de correos electrónicos autorizados en formato JSON (minúsculas)."),
-    )
     class BurnPolicy(models.TextChoices):
         FIRST_ACCESS = "FIRST_ACCESS", _("Con que solo acceda uno (al primer acceso)")
         ALL_RECIPIENTS = "ALL_RECIPIENTS", _("Cuando accedan todos (destruir tras el acceso de todos)")
 
+    original_filename = models.CharField(
+        max_length=255,
+        default="documento",
+        verbose_name=_("Nombre original del documento"),
+        help_text=_("Nombre del archivo original cargado en el sistema."),
+    )
+    file_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        verbose_name=_("Hash SHA-256"),
+        help_text=_("Hash SHA-256 hexadecimal (64 caracteres) del archivo original."),
+    )
+    encrypted_file = models.FileField(
+        upload_to="encrypted_docs/%Y/%m/",
+        verbose_name=_("Archivo cifrado"),
+        help_text=_("Archivo binario cifrado en reposo con la DEK."),
+    )
+    encrypted_dek = models.TextField(
+        default="",
+        verbose_name=_("Clave Maestra de Datos (DEK) cifrada"),
+        help_text=_("DEK cifrada internamente con settings.FREEDEC_FERNET_KEY."),
+    )
+    allowed_emails = models.JSONField(
+        default=list,
+        verbose_name=_("Correos autorizados"),
+        help_text=_("Lista de correos autorizados en minúsculas."),
+    )
     burn_policy = models.CharField(
         max_length=20,
         choices=BurnPolicy.choices,
         default=BurnPolicy.FIRST_ACCESS,
         verbose_name=_("Política de destrucción"),
-        help_text=_(
-            "Determina si el archivo se destruye al primer acceso de cualquiera o cuando todos los destinatarios hayan accedido."
-        ),
+        help_text=_("Determina si se destruye al primer acceso o tras el acceso de todos."),
     )
     consumed_recipients = models.JSONField(
         default=list,
         blank=True,
         verbose_name=_("Destinatarios que han consumido"),
-        help_text=_("Lista de correos autorizados que ya han descargado su copia."),
+        help_text=_("Lista de correos que ya han descargado su copia individual."),
     )
     is_consumed = models.BooleanField(
         default=False,
         db_index=True,
-        verbose_name=_("¿Archivo consumido?"),
-        help_text=_("Indica si el documento ya ha sido descifrado y consumido por un destinatario final."),
+        verbose_name=_("¿Documento consumido?"),
+        help_text=_("Indica si el documento ya fue canjeado y destruido del almacenamiento."),
     )
     consumed_by = models.CharField(
         max_length=254,
         null=True,
         blank=True,
         verbose_name=_("Consumido por"),
-        help_text=_("Correo del usuario final o resumen de destinatarios que consumieron y provocaron la destrucción del documento."),
+        help_text=_("Correo del usuario o resumen de destinatarios que retiraron el documento."),
     )
     consumed_at = models.DateTimeField(
-        blank=True,
-        null=True,
-        verbose_name=_("Fecha y hora de consumo"),
-        help_text=_("Momento exacto en el que el documento fue consumido y su binario eliminado del disco."),
-    )
-    access_count = models.PositiveIntegerField(
-        default=0,
-        verbose_name=_("Veces accedido"),
-        help_text=_("Número total de solicitudes de acceso o descifrados autorizados."),
-    )
-    last_accessed_at = models.DateTimeField(
         null=True,
         blank=True,
-        verbose_name=_("Último acceso"),
-        help_text=_("Fecha y hora de la última solicitud de acceso o descifrado."),
-    )
-    last_accessed_by = models.CharField(
-        max_length=254,
-        blank=True,
-        null=True,
-        verbose_name=_("Último correo que accedió"),
-        help_text=_("Dirección de correo del último usuario que solicitó el acceso."),
+        verbose_name=_("Fecha y hora del canje"),
+        help_text=_("Momento exacto en el que el documento fue canjeado."),
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
-        verbose_name=_("Fecha de creación"),
-        help_text=_("Fecha y hora de registro y cifrado del documento."),
+        verbose_name=_("Fecha de alta"),
+        help_text=_("Marca temporal de creación del registro."),
     )
     updated_at = models.DateTimeField(
         auto_now=True,
         verbose_name=_("Fecha de actualización"),
-        help_text=_("Fecha y hora de la última modificación del registro."),
+        help_text=_("Marca temporal de la última actualización."),
     )
 
     class Meta:
         verbose_name = _("Documento Cifrado")
         verbose_name_plural = _("Documentos Cifrados")
         ordering = ["-created_at"]
+        permissions = [
+            ("can_audit_download", _("Puede realizar descarga de auditoría administrativa")),
+        ]
 
-    def __str__(self):
-        status_suffix = f" [CONSUMIDO por {self.consumed_by}]" if self.is_consumed else ""
+    def __str__(self) -> str:
+        status_suffix = f" [CONSUMIDO por {self.consumed_by}]" if self.is_consumed else " [ACTIVO]"
         return f"{self.original_filename} (hash={self.file_hash[:8]}...){status_suffix}"
 
     def is_email_authorized(self, email: str) -> bool:
         """
-        Comprueba si una dirección de correo está autorizada para recibir el acceso.
-        Normaliza a minúsculas y elimina espacios para evitar evasiones de lista blanca.
+        Comprueba si una dirección de correo está autorizada para acceder al documento.
+        Normaliza a minúsculas y elimina espacios en blanco para evitar evasiones.
         """
         if not email or not isinstance(self.allowed_emails, list):
             return False
         normalized_email = email.strip().lower()
-        return normalized_email in [e.strip().lower() for e in self.allowed_emails if isinstance(e, str)]
+        return normalized_email in [
+            e.strip().lower() for e in self.allowed_emails if isinstance(e, str)
+        ]
 
     def is_email_consumed(self, email: str) -> bool:
-        """Comprueba si un correo ya ha descargado su copia."""
+        """Comprueba si un correo específico ya ha descargado su copia."""
         if not email or not isinstance(self.consumed_recipients, list):
             return False
         normalized_email = email.strip().lower()
-        return normalized_email in [e.strip().lower() for e in self.consumed_recipients if isinstance(e, str)]
+        return normalized_email in [
+            e.strip().lower() for e in self.consumed_recipients if isinstance(e, str)
+        ]
 
     def are_all_recipients_consumed(self) -> bool:
         """Comprueba si todos los correos autorizados ya han descargado su copia."""
@@ -175,35 +144,27 @@ class EncryptedDocument(models.Model):
 
 class AccessVerificationToken(models.Model):
     """
-    Token de verificación temporal y de un solo uso para acceso por correo (Magic Link / OTP).
-    Prueba de posesión en tiempo real (Zero-Knowledge: solo se almacena el hash del token).
+    Token de verificación temporal y de un solo uso para verificación OTP en tiempo real.
     """
 
     document = models.ForeignKey(
         EncryptedDocument,
         on_delete=models.CASCADE,
-        related_name="tokens",
+        related_name="verification_tokens",
         verbose_name=_("Documento"),
     )
     email = models.EmailField(
         db_index=True,
-        verbose_name=_("Correo del solicitante"),
-    )
-    token_hash = models.CharField(
-        max_length=128,
-        db_index=True,
-        verbose_name=_("Hash del token"),
-        help_text=_("Resumen PBKDF2/SHA-256 del token plano enviado por correo."),
+        verbose_name=_("Correo oficial del solicitante"),
     )
     otp_code = models.CharField(
         max_length=6,
-        db_index=True,
         verbose_name=_("Código OTP"),
-        help_text=_("Código numérico de 6 dígitos como alternativa al enlace directo."),
+        help_text=_("Código numérico de 6 dígitos generado criptográficamente."),
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
-        verbose_name=_("Fecha de generación"),
+        verbose_name=_("Fecha de creación"),
     )
     expires_at = models.DateTimeField(
         verbose_name=_("Fecha de caducidad"),
@@ -212,32 +173,54 @@ class AccessVerificationToken(models.Model):
     is_used = models.BooleanField(
         default=False,
         verbose_name=_("¿Utilizado?"),
-        help_text=_("Indica si el token ya fue consumido para descargar el documento."),
+        help_text=_("Indica si el token ya fue consumido o revocado."),
+    )
+    failed_attempts = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Intentos fallidos"),
+        help_text=_("Contador de intentos fallidos. Se revoca al alcanzar 3."),
     )
 
     class Meta:
-        verbose_name = _("Token de Verificación de Acceso")
-        verbose_name_plural = _("Tokens de Verificación de Acceso")
+        verbose_name = _("Token de Verificación OTP")
+        verbose_name_plural = _("Tokens de Verificación OTP")
         ordering = ["-created_at"]
 
-    def __str__(self):
-        status = "USADO" if self.is_used else ("EXPIRADO" if self.is_expired() else "ACTIVO")
+    def __str__(self) -> str:
+        status = "USADO" if self.is_used else ("ACTIVO" if self.is_valid() else "EXPIRADO/BLOQUEADO")
         return f"Token [{status}] {self.email} ({self.document.original_filename})"
 
-    def is_expired(self) -> bool:
-        from django.utils import timezone
-        return timezone.now() >= self.expires_at
-
     def is_valid(self) -> bool:
-        """Comprueba que el token no haya sido utilizado y esté dentro de la ventana de validez."""
-        return (not self.is_used) and (not self.is_expired())
+        """
+        Retorna True si no ha sido usado, no ha caducado y no supera los 3 intentos fallidos.
+        """
+        return (not self.is_used) and (timezone.now() <= self.expires_at) and (self.failed_attempts < 3)
+
+    def register_failed_attempt(self) -> None:
+        """
+        Incrementa failed_attempts en 1. Si alcanza 3, marca is_used = True
+        para revocar el token permanentemente.
+        """
+        self.failed_attempts += 1
+        if self.failed_attempts >= 3:
+            self.is_used = True
+        self.save(update_fields=["failed_attempts", "is_used"])
 
 
 class DocumentAccessLog(models.Model):
     """
-    Registro histórico de auditoría de accesos a un documento cifrado.
-    Registra cada vez que un destinatario autorizado solicita acceso o descifra el archivo.
+    Registro histórico de auditoría legal de accesos y ciclo de vida del documento.
     """
+
+    class Action(models.TextChoices):
+        SOLICITUD_OTP = "solicitud_otp", _("Solicitud de OTP")
+        OTP_ENVIADO = "otp_enviado", _("OTP enviado al solicitante")
+        DESCIFRADO_EXITOSO_BURN = "descifrado_exitoso_burn", _("Descifrado exitoso y destrucción segura (Burn-After-Read)")
+        DESCIFRADO_PARCIAL_PRESERVADO = "descifrado_parcial_preservado", _("Descifrado parcial (preservado para restantes destinatarios)")
+        REACTIVACION_DOCUMENTO = "reactivacion_documento", _("Reactivación y re-cifrado de documento")
+        INTENTO_POST_CONSUMO = "intento_post_consumo", _("Intento de acceso post-consumo")
+        OTP_INVALIDO_BLOQUEADO = "otp_invalido_bloqueado", _("OTP inválido / Bloqueado por intentos")
+        ADMIN_DESCARGA_PRESERVADA = "admin_descarga_preservada", _("Descarga de auditoría administrativa preservada")
 
     document = models.ForeignKey(
         EncryptedDocument,
@@ -247,17 +230,12 @@ class DocumentAccessLog(models.Model):
     )
     email = models.CharField(
         max_length=254,
-        verbose_name=_("Correo solicitante"),
+        verbose_name=_("Correo del solicitante"),
     )
     action = models.CharField(
         max_length=50,
-        default="solicitud_acceso",
+        choices=Action.choices,
         verbose_name=_("Acción"),
-        help_text=_(
-            "Tipo de evento: 'solicitud_acceso', 'descifrado_completado_burn', "
-            "'descifrado_parcial_preservado', 'reactivacion_documento', "
-            "'intento_post_consumo', 'admin_inspeccion_preservada', 'intento_fallido'."
-        ),
     )
     ip_address = models.GenericIPAddressField(
         null=True,
@@ -268,39 +246,30 @@ class DocumentAccessLog(models.Model):
         null=True,
         blank=True,
         verbose_name=_("User-Agent"),
-        help_text=_("Cadena de identificación del navegador/cliente para análisis forense."),
     )
-    timestamp = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name=_("Fecha y hora de acceso"),
+    created_at = models.DateTimeField(
+        default=timezone.now,
+        verbose_name=_("Fecha y hora"),
     )
 
     class Meta:
         verbose_name = _("Registro de Auditoría de Acceso")
         verbose_name_plural = _("Registros de Auditoría de Accesos")
-        ordering = ["-timestamp"]
+        ordering = ["-created_at"]
 
-    def __str__(self):
-        return f"[{self.timestamp:%Y-%m-%d %H:%M:%S}] {self.email} -> {self.action} ({self.document.original_filename})"
+    def __str__(self) -> str:
+        return f"[{self.created_at:%Y-%m-%d %H:%M:%S}] {self.email} -> {self.action} ({self.document.original_filename})"
 
 
 @receiver(post_delete, sender=EncryptedDocument)
-def delete_physical_encrypted_file_on_delete(sender, instance, **kwargs):
+def auto_delete_physical_file_on_delete(sender: Any, instance: EncryptedDocument, **kwargs: Any) -> None:
     """
-    Elimina automáticamente el archivo físico (.enc) del almacenamiento (disco / MEDIA_ROOT)
-    cuando se elimina el registro en la base de datos.
-    
-    Aplica tanto a borrados individuales (doc.delete()) como a borrados masivos
-    desde el panel de administración de Django o mediante QuerySet.delete().
+    Elimina físicamente el archivo del disco con borrado seguro cuando
+    se elimina el registro del documento de la base de datos.
     """
     if instance.encrypted_file:
         try:
-            storage = instance.encrypted_file.storage
-            name = instance.encrypted_file.name
-            if name and storage.exists(name):
-                storage.delete(name)
-                logger.info(f"[FREEDEC AUDIT] Archivo físico eliminado del almacenamiento: {name}")
+            from freedec.services import shred_and_delete_file
+            shred_and_delete_file(instance.encrypted_file)
         except Exception as exc:
-            logger.warning(
-                f"[FREEDEC WARNING] No se pudo eliminar el archivo físico {instance.encrypted_file}: {exc}"
-            )
+            logger.warning(f"[FREEDEC] No se pudo ejecutar borrado seguro de {instance.encrypted_file}: {exc}")

@@ -1,69 +1,83 @@
+import re
+from typing import Any, Dict
 from django import forms
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
-from freedec.validators import validate_document_file, validate_safe_email
+from freedec.validators import validate_safe_email
 
-DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024
+HASH_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
-class PublicAccessRequestForm(forms.Form):
+class RequestAccessForm(forms.Form):
     """
-    Formulario web para la solicitud pública de acceso mediante Enlace Mágico / OTP.
-    El usuario final sube el archivo cifrado (.enc) y proporciona su correo electrónico.
+    Formulario público para solicitar el canje desatendido mediante Hash SHA-256 y OTP.
+    
+    Regla de Oro 1: CERO TRANSPORTE DEL BINARIO POR EL CLIENTE.
+    El usuario final NUNCA sube el archivo .enc para identificarse.
+    El localizador oficial y prueba de trámite es exclusivamente el hash SHA-256.
     """
 
-    file = forms.FileField(
-        label=_("Archivo Cifrado (.enc)"),
-        help_text=_("Seleccione el archivo cifrado (.enc) que desea abrir."),
-        widget=forms.FileInput(attrs={"class": "form-file-input", "id": "public_file"}),
+    file_hash = forms.CharField(
+        label=_("Hash SHA-256 del Documento"),
+        max_length=64,
+        min_length=64,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control font-mono",
+                "placeholder": _("Cadena hexadecimal de 64 caracteres"),
+                "id": "file_hash",
+                "autocomplete": "off",
+                "spellcheck": "false",
+            }
+        ),
+        help_text=_("Huella digital SHA-256 única del archivo original asignada al trámite."),
     )
-    email = forms.CharField(
+    email = forms.EmailField(
         label=_("Correo Electrónico"),
         widget=forms.EmailInput(
             attrs={
                 "class": "form-control",
-                "placeholder": _("su-correo@ejemplo.com"),
+                "placeholder": _("su-correo@empresa.com"),
                 "id": "email",
+                "autocomplete": "email",
             }
         ),
-        help_text=_("Dirección autorizada a la que se enviará el enlace de acceso directo y código OTP."),
+        help_text=_("Buzón autorizado al que se enviará el código OTP de verificación en tiempo real."),
     )
 
-    def clean_file(self):
-        file_obj = self.cleaned_data.get("file")
-        if not file_obj:
-            raise ValidationError(_("Debe proporcionar un archivo."))
-
-        max_size = getattr(settings, "FREEDEC_MAX_FILE_SIZE", DEFAULT_MAX_FILE_SIZE)
-        if file_obj.size > max_size:
-            max_mb = max_size // (1024 * 1024)
+    def clean_file_hash(self) -> str:
+        raw_hash = (self.cleaned_data.get("file_hash") or "").strip().lower()
+        if not HASH_REGEX.match(raw_hash):
             raise ValidationError(
-                _("El archivo excede el tamaño máximo permitido de %(max_size)s MB.")
-                % {"max_size": max_mb}
+                _("El hash SHA-256 debe componerse exactamente de 64 caracteres hexadecimales [0-9a-f].")
             )
+        return raw_hash
 
-        return file_obj
-
-    def clean_email(self):
+    def clean_email(self) -> str:
         raw_email = self.cleaned_data.get("email", "")
         return validate_safe_email(raw_email)
 
 
-class PublicConsumeDocumentForm(forms.Form):
+class RedeemOtpForm(forms.Form):
     """
-    Formulario para descifrar y consumir el documento mediante token URL o código OTP de 6 dígitos.
+    Formulario para el canje seguro y descifrado en memoria mediante código OTP de 6 dígitos.
     """
 
-    token = forms.CharField(
-        required=False,
-        widget=forms.HiddenInput(attrs={"id": "consume_token"}),
+    file_hash = forms.CharField(
+        max_length=64,
+        min_length=64,
+        widget=forms.HiddenInput(attrs={"id": "redeem_file_hash"}),
+        required=True,
+    )
+    email = forms.EmailField(
+        widget=forms.HiddenInput(attrs={"id": "redeem_email"}),
+        required=True,
     )
     otp_code = forms.CharField(
-        label=_("Código OTP (6 dígitos)"),
-        required=False,
+        label=_("Código de Verificación OTP (6 dígitos)"),
         max_length=6,
+        min_length=6,
         widget=forms.TextInput(
             attrs={
                 "class": "form-control font-mono text-center",
@@ -71,40 +85,31 @@ class PublicConsumeDocumentForm(forms.Form):
                 "id": "otp_code",
                 "maxlength": "6",
                 "autocomplete": "one-time-code",
+                "autofocus": "autofocus",
             }
         ),
-        help_text=_("Introduzca el código OTP de 6 dígitos recibido por correo."),
-    )
-    email = forms.CharField(
-        label=_("Correo Electrónico"),
-        required=False,
-        widget=forms.EmailInput(
-            attrs={
-                "class": "form-control",
-                "placeholder": _("su-correo@ejemplo.com"),
-                "id": "consume_email",
-            }
-        ),
-        help_text=_("Requerido únicamente si utiliza código OTP manual."),
+        help_text=_("Introduzca el código numérico de 6 dígitos recibido por correo."),
     )
 
-    def clean(self):
-        cleaned_data = super().clean()
-        token = cleaned_data.get("token")
-        otp_code = cleaned_data.get("otp_code")
+    def clean_file_hash(self) -> str:
+        raw_hash = (self.cleaned_data.get("file_hash") or "").strip().lower()
+        if not HASH_REGEX.match(raw_hash):
+            raise ValidationError(_("Hash SHA-256 de documento no válido."))
+        return raw_hash
 
-        if not token and not otp_code:
-            raise ValidationError(_("Debe proporcionar el token de acceso o el código OTP."))
+    def clean_email(self) -> str:
+        raw_email = self.cleaned_data.get("email", "")
+        return validate_safe_email(raw_email)
 
-        if otp_code and not token:
-            email = cleaned_data.get("email")
-            if not email:
-                raise ValidationError(_("Debe indicar su correo electrónico para validar el código OTP."))
-            cleaned_data["email"] = validate_safe_email(email)
-
-        return cleaned_data
+    def clean_otp_code(self) -> str:
+        code = (self.cleaned_data.get("otp_code") or "").strip()
+        if not code.isdigit() or len(code) != 6:
+            raise ValidationError(_("El código OTP debe consistir en 6 dígitos numéricos."))
+        return code
 
 
-# Alias de compatibilidad
-PublicPasswordRequestForm = PublicAccessRequestForm
-PublicDecryptDocumentForm = PublicConsumeDocumentForm
+# Alias de compatibilidad para evitar roturas
+PublicAccessRequestForm = RequestAccessForm
+PublicConsumeDocumentForm = RedeemOtpForm
+PublicDecryptDocumentForm = RedeemOtpForm
+PublicPasswordRequestForm = RequestAccessForm
