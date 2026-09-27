@@ -303,5 +303,40 @@ class FreedecViewsSecurityTestCase(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Descargado por 1/2 destinatarios")
         self.assertContains(resp, "1/2 accedidos")
+        self.assertContains(resp, "Plantilla")
+
+    def test_admin_change_form_renders_corporate_email_template_and_allows_editing_description(self):
+        """
+        En el formulario de edición de EncryptedDocument en el Admin:
+        - Se renderiza el panel de plantilla corporativa con textarea y botón de copiado.
+        - Se permite modificar el campo de descripción y éste persiste al guardar.
+        """
+        self.client.force_login(self.superuser)
+        change_url = reverse("admin:freedec_encrypteddocument_change", args=[self.document.pk])
+        resp = self.client.get(change_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Texto Corporativo Prediseñado")
+        self.assertContains(resp, "Copiar texto para correo")
+        self.assertContains(resp, self.document.file_hash)
+        self.assertContains(resp, self.document.original_filename)
+
+        # Modificar la descripción a través del POST
+        log_count = self.document.access_logs.count()
+        post_data = {
+            "description": "Nueva descripción editada por el administrador",
+            "allowed_emails": self.document.allowed_emails,
+            "burn_policy": self.document.burn_policy,
+            "access_logs-TOTAL_FORMS": str(log_count),
+            "access_logs-INITIAL_FORMS": str(log_count),
+            "access_logs-MIN_NUM_FORMS": "0",
+            "access_logs-MAX_NUM_FORMS": "1000",
+            "_save": "Guardar",
+        }
+        post_resp = self.client.post(change_url, post_data)
+        self.assertEqual(post_resp.status_code, 302)
+
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.description, "Nueva descripción editada por el administrador")
+
 
 

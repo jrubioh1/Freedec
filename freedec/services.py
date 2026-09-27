@@ -119,6 +119,7 @@ def reactivate_document(
     original_file: Any,
     new_emails: Union[List[str], str, Any] = None,
     burn_policy: Optional[str] = None,
+    new_description: Optional[str] = None,
     admin_user: Any = None,
     client_ip: Optional[str] = None,
     user_agent: Optional[str] = None,
@@ -162,6 +163,8 @@ def reactivate_document(
     document.allowed_emails = normalized_emails
     if burn_policy:
         document.burn_policy = burn_policy
+    if new_description is not None:
+        document.description = new_description
     document.is_consumed = False
     document.consumed_by = None
     document.consumed_at = None
@@ -193,6 +196,7 @@ def upload_and_encrypt_document(
     original_file: Any,
     allowed_emails: Union[List[str], str, Any],
     burn_policy: str = EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+    description: Optional[str] = None,
     reopen_existing: bool = False,
     admin_user: Any = None,
     client_ip: Optional[str] = None,
@@ -228,6 +232,7 @@ def upload_and_encrypt_document(
                 original_file=original_file,
                 new_emails=normalized_emails,
                 burn_policy=burn_policy,
+                new_description=description,
                 admin_user=admin_user,
                 client_ip=client_ip,
                 user_agent=user_agent,
@@ -251,14 +256,18 @@ def upload_and_encrypt_document(
     clean_filename = os.path.basename(filename)
     encrypted_filename = f"{clean_filename}.enc"
 
-    document = EncryptedDocument(
-        original_filename=clean_filename,
-        file_hash=file_hash,
-        encrypted_dek=encrypted_dek_str,
-        allowed_emails=normalized_emails,
-        burn_policy=burn_policy or EncryptedDocument.BurnPolicy.FIRST_ACCESS,
-        is_consumed=False,
-    )
+    doc_kwargs = {
+        "original_filename": clean_filename,
+        "file_hash": file_hash,
+        "encrypted_dek": encrypted_dek_str,
+        "allowed_emails": normalized_emails,
+        "burn_policy": burn_policy or EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+        "is_consumed": False,
+    }
+    if description is not None:
+        doc_kwargs["description"] = description
+
+    document = EncryptedDocument(**doc_kwargs)
     document.encrypted_file.save(encrypted_filename, ContentFile(ciphertext_bytes), save=False)
     document.save()
 
@@ -313,16 +322,23 @@ def request_document_access(
             else _("fecha no registrada")
         )
         consumed_by_str = document.consumed_by or _("un usuario autorizado")
+        doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+        desc_part = f"• Descripción: {document.description}\n" if document.description else ""
         
         post_consume_message = (
-            f"El documento con huella digital SHA-256 {document.file_hash} ya fue retirado de la pasarela "
-            f"el {consumed_at_str} por {consumed_by_str}. Por motivos de seguridad (destrucción tras entrega), "
-            f"solicite una copia directamente a dicha dirección."
+            f"El documento confidencial ya fue retirado de la pasarela el {consumed_at_str} por {consumed_by_str}.\n\n"
+            f"DATOS DEL DOCUMENTO:\n"
+            f"• Archivo original: {doc_name}\n"
+            f"{desc_part}"
+            f"• Huella digital SHA-256: {document.file_hash}\n\n"
+            f"Por motivos estrictos de seguridad y privacidad (destrucción tras entrega), "
+            f"el archivo físico ha sido eliminado. Solicite una copia directamente a dicha dirección."
         )
 
         try:
             send_mail(
-                subject=_("Aviso de Seguridad: Documento ya retirado de la pasarela"),
+                subject=_("Aviso de Seguridad: Documento '%(filename)s' ya retirado de la pasarela")
+                % {"filename": doc_name},
                 message=post_consume_message,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
                 recipient_list=[normalized_email],
@@ -353,11 +369,15 @@ def request_document_access(
             user_agent=user_agent,
         )
         doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+        desc_part = f"• Descripción: {document.description}\n" if document.description else ""
         try:
             send_mail(
                 subject=f"[Freedec] Copia ya descargada: {doc_name}",
                 message=(
-                    f"Usted ya ha descargado previamente una copia del documento '{doc_name}'. "
+                    f"Usted ya ha descargado previamente una copia del documento confidencial:\n"
+                    f"• Archivo: {doc_name}\n"
+                    f"{desc_part}"
+                    f"• Huella digital SHA-256: {document.file_hash}\n\n"
                     f"Cada destinatario autorizado dispone de una única descarga permitida."
                 ),
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
@@ -402,10 +422,15 @@ def request_document_access(
             else "AVISO DE SEGURIDAD (Burn-After-Read): Al primer canje exitoso, el archivo almacenado en disco será destruido físicamente de forma permanente."
         )
 
-        email_subject = _("Código de verificación OTP para documento confidencial - Freedec")
+        doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
+        desc_part = f"• Descripción: {document.description}\n" if document.description else ""
+        email_subject = _("Código de verificación OTP para '%(filename)s' - Freedec") % {"filename": doc_name}
         email_body = (
-            f"Ha solicitado el canje del documento confidencial identificado con SHA-256:\n"
-            f"{document.file_hash}\n\n"
+            f"Ha solicitado el canje del documento confidencial:\n"
+            f"• Archivo: {doc_name}\n"
+            f"{desc_part}"
+            f"• Huella digital SHA-256 (Prueba unívoca de trámite):\n"
+            f"  {document.file_hash}\n\n"
             f"Su código de verificación OTP de un solo uso es:\n"
             f"{otp_code}\n\n"
             f"Validez estricta: 15 minutos.\n"
@@ -438,6 +463,40 @@ def request_document_access(
     # Correo no autorizado: PBKDF2 simulado y respuesta neutra
     hashlib.pbkdf2_hmac("sha256", normalized_email.encode("utf-8"), b"freedec_timing_salt", 100_000)
     return True, GENERIC_ACCESS_MESSAGE
+
+
+def generate_corporate_email_text(document: EncryptedDocument, base_url: Optional[str] = None) -> str:
+    """
+    Genera el texto corporativo por defecto de Freedec para notificar al destinatario,
+    incluyendo nombre del archivo, descripción, hash SHA-256 e instrucciones de acceso.
+    """
+    url_root = (base_url or getattr(settings, "FREEDEC_BASE_URL", "http://127.0.0.1:8000")).rstrip("/")
+    solicitar_url = f"{url_root}/freedec/solicitar/?hash={document.file_hash}"
+    policy_desc = (
+        "El documento permanecerá disponible en la plataforma hasta que todos los destinatarios autorizados hayan realizado su descarga."
+        if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
+        else "Por estrictos motivos de seguridad y confidencialidad (Burn-After-Read), el archivo cifrado almacenado en el servidor será destruido de forma permanente e irreversible tras el primer canje exitoso."
+    )
+    desc_part = f"\n• Descripción: {document.description}" if document.description else ""
+
+    return (
+        f"Estimado/a destinatario/a,\n\n"
+        f"Le informamos de que se ha puesto a su disposición un documento confidencial a través de la pasarela segura Freedec.\n\n"
+        f"DETALLES DEL DOCUMENTO:\n"
+        f"• Nombre del archivo: {document.original_filename}"
+        f"{desc_part}\n"
+        f"• Localizador oficial (Hash SHA-256):\n"
+        f"  {document.file_hash}\n\n"
+        f"INSTRUCCIONES PARA EL CANJE SEGURO:\n"
+        f"1. Acceda al siguiente enlace oficial para tramitar la entrega:\n"
+        f"   {solicitar_url}\n"
+        f"2. Indique su dirección de correo electrónico autorizada para recibir su código de verificación temporal de un solo uso (OTP).\n"
+        f"3. Introduzca el código OTP de 6 dígitos en la pasarela para iniciar la descarga inmediata del archivo original descifrado en memoria RAM.\n\n"
+        f"AVISO DE SEGURIDAD:\n"
+        f"{policy_desc}\n\n"
+        f"Atentamente,\n"
+        f"Servicio de Entrega Segura - Freedec"
+    )
 
 
 def consume_document_with_otp(
@@ -646,6 +705,7 @@ class DocumentManagementService:
         original_file: Any,
         allowed_emails: Union[List[str], str, Any],
         burn_policy: str = EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+        description: Optional[str] = None,
         reopen_existing: bool = False,
         admin_user: Any = None,
         client_ip: Optional[str] = None,
@@ -656,6 +716,7 @@ class DocumentManagementService:
             original_file=original_file,
             allowed_emails=allowed_emails,
             burn_policy=burn_policy,
+            description=description,
             reopen_existing=reopen_existing,
             admin_user=admin_user,
             client_ip=client_ip,
@@ -668,6 +729,7 @@ class DocumentManagementService:
         original_file: Any,
         new_emails: Union[List[str], str, Any] = None,
         burn_policy: Optional[str] = None,
+        new_description: Optional[str] = None,
         admin_user: Any = None,
         client_ip: Optional[str] = None,
         user_agent: Optional[str] = None,
@@ -677,10 +739,18 @@ class DocumentManagementService:
             original_file=original_file,
             new_emails=new_emails,
             burn_policy=burn_policy,
+            new_description=new_description,
             admin_user=admin_user,
             client_ip=client_ip,
             user_agent=user_agent,
         )
+
+    def generate_corporate_email_text(
+        self,
+        document: EncryptedDocument,
+        base_url: Optional[str] = None,
+    ) -> str:
+        return generate_corporate_email_text(document=document, base_url=base_url)
 
     def request_document_access(
         self,

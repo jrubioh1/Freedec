@@ -111,12 +111,16 @@ poetry run python scripts/demo_flow.py
 ## 4. Gestión en Django Admin
 
 * **Panel `EncryptedDocumentAdmin`**:
-  * Columnas: `original_filename`, `file_hash`, `burn_policy`, `consumption_status_badge`, `audit_download_button`, `delete_action_button`.
+  * Columnas: `original_filename`, `file_hash`, `burn_policy`, `consumption_status_badge`, `audit_download_button`, `corporate_email_button`, `delete_action_button`.
   * **Cero contraseñas**: Ningún campo muestra ni almacena contraseñas humanas.
+  * **Descripción editable del documento**: Campo editable con valor corporativo por defecto, modificable tanto en el alta como en la edición y durante procesos de reactivación. Esta descripción se incorpora automáticamente en todas las notificaciones por correo electrónico (OTP, avisos de retirada y advertencias).
+  * **Plantilla de Correo Corporativo (📋 / 📨)**:
+    * Botón `📋 Copiar texto correo` en el listado para copiar instantáneamente al portapapeles el texto oficial corporativo con el nombre del archivo, su descripción, el Hash SHA-256 y el enlace directo de acceso.
+    * Panel en el detalle del documento con visor del texto preformateado, botón de copia y enlace directo para abrir el cliente de correo (`mailto:`).
   * **Selector de Política de Destrucción (`burn_policy`)**:
     * `⚡ 1er Acceso` (*FIRST_ACCESS*): Trituración y borrado físico inmediato tras el primer canje exitoso.
     * `👥 Todos` (*ALL_RECIPIENTS*): Cada destinatario autorizado dispone de una descarga individual; el archivo se preserva en disco hasta que todos los destinatarios hayan canjeado su copia.
-  * **Verificación Dinámica y Reactivación**: Cálculo de SHA-256 en cliente con WebCrypto API; detecta si el documento ya existe y si hay destinatarios previos con canje pendiente, ofreciendo el botón `➕ Volver a añadir pendientes a la lista de correos` para reactivarlo sin colisiones.
+  * **Verificación Dinámica y Reactivación**: Cálculo de SHA-256 en cliente con WebCrypto API; detecta si el documento ya existe y si hay destinatarios previos con canje pendiente, ofreciendo el botón `➕ Volver a añadir pendientes a la lista de correos` para reactivarlo sin colisiones y permitiendo actualizar la descripción.
   * **Eliminación y Trituración Directa (🗑️)**: Botón de borrado directo con permisos en cascada sobre tokens y registros de auditoría, ejecutando la destrucción física en disco (`shred_and_delete_file`).
   * **Descarga de Auditoría Administrativa**: Botón y acción que permite al personal staff con permiso `can_audit_download` descargar una copia descifrada para fines legales o de auditoría mientras el documento **no haya sido consumido**, **sin destruir el archivo ni marcarlo como consumido**, registrando `admin_descarga_preservada`.
   * Inline de auditoría legal de solo lectura (`DocumentAccessLogInline`).

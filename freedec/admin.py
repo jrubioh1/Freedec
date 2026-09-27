@@ -1,6 +1,7 @@
 import io
 import json
 from typing import Any, List, Optional
+from urllib.parse import quote
 
 from django import forms
 from django.contrib import admin, messages
@@ -15,6 +16,7 @@ from freedec.models import AccessVerificationToken, DocumentAccessLog, Encrypted
 from freedec.services import (
     admin_decrypt_document,
     calculate_file_sha256,
+    generate_corporate_email_text,
     reactivate_document,
     shred_and_delete_file,
     upload_and_encrypt_document,
@@ -263,6 +265,21 @@ class EncryptedDocumentAddForm(forms.ModelForm):
             "Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
         ),
     )
+    description = forms.CharField(
+        label=_("Descripción del documento"),
+        required=False,
+        initial="Documento confidencial tramitado a través de la pasarela segura Freedec.",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "class": "vLargeTextField",
+                "placeholder": _("Descripción informativa o motivo confidencial del trámite..."),
+            }
+        ),
+        help_text=_(
+            "Descripción que se incluirá en las notificaciones por correo y en la plantilla corporativa."
+        ),
+    )
     allowed_emails = forms.CharField(
         label=_("Correos autorizados"),
         widget=EmailListAdminWidget(),
@@ -281,7 +298,7 @@ class EncryptedDocumentAddForm(forms.ModelForm):
 
     class Meta:
         model = EncryptedDocument
-        fields = ("original_file", "allowed_emails", "burn_policy")
+        fields = ("original_file", "description", "allowed_emails", "burn_policy")
 
     def clean_burn_policy(self) -> str:
         return self.cleaned_data.get("burn_policy") or EncryptedDocument.BurnPolicy.FIRST_ACCESS
@@ -314,6 +331,20 @@ class EncryptedDocumentChangeForm(forms.ModelForm):
             "Si el documento ya fue consumido o desea habilitar nuevos destinatarios, suba aquí el archivo original. Se re-cifrará y reactivará manteniendo la trazabilidad histórica."
         ),
     )
+    description = forms.CharField(
+        label=_("Descripción del documento"),
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "class": "vLargeTextField",
+                "placeholder": _("Descripción informativa o motivo confidencial del trámite..."),
+            }
+        ),
+        help_text=_(
+            "Descripción que se incluirá en las notificaciones por correo y en la plantilla corporativa. Puede modificarse tanto en documentos activos como reactivados."
+        ),
+    )
     allowed_emails = forms.CharField(
         label=_("Correos autorizados"),
         required=True,
@@ -329,7 +360,7 @@ class EncryptedDocumentChangeForm(forms.ModelForm):
 
     class Meta:
         model = EncryptedDocument
-        fields = ("reupload_file", "allowed_emails", "burn_policy")
+        fields = ("reupload_file", "description", "allowed_emails", "burn_policy")
 
     def clean_burn_policy(self) -> str:
         return self.cleaned_data.get("burn_policy") or EncryptedDocument.BurnPolicy.FIRST_ACCESS
@@ -389,11 +420,12 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         "consumed_by",
         "consumed_at",
         "created_at",
+        "corporate_email_button",
         "audit_download_button",
         "delete_action_button",
     )
     list_filter = ("burn_policy", "is_consumed", "created_at")
-    search_fields = ("original_filename", "file_hash", "consumed_by")
+    search_fields = ("original_filename", "description", "file_hash", "consumed_by")
     inlines = [DocumentAccessLogInline]
     actions = ["admin_audit_download_action"]
 
@@ -408,9 +440,9 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 (
                     _("Cifrado y Registro de Nuevo Documento"),
                     {
-                        "fields": ("original_file", "allowed_emails", "burn_policy"),
+                        "fields": ("original_file", "description", "allowed_emails", "burn_policy"),
                         "description": _(
-                            "Suba el documento original, configure los correos autorizados y seleccione la política de destrucción (primer acceso vs cuando accedan todos)."
+                            "Suba el documento original, configure la descripción, los correos autorizados y seleccione la política de destrucción (primer acceso vs cuando accedan todos)."
                         ),
                     },
                 ),
@@ -423,6 +455,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                         "original_filename",
                         "file_hash",
                         "encrypted_file",
+                        "corporate_email_template_panel",
                         "audit_download_panel",
                         "created_at",
                     ),
@@ -433,6 +466,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 {
                     "fields": (
                         "reupload_file",
+                        "description",
                         "burn_policy",
                         "is_consumed",
                         "consumed_by",
@@ -456,6 +490,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             "original_filename",
             "file_hash",
             "encrypted_file",
+            "corporate_email_template_panel",
             "audit_download_panel",
             "is_consumed",
             "consumed_by",
@@ -470,6 +505,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
 
         if not change:
             original_file = form.cleaned_data["original_file"]
+            description = form.cleaned_data.get("description")
             allowed_emails = form.cleaned_data["allowed_emails"]
             burn_policy = form.cleaned_data.get("burn_policy", EncryptedDocument.BurnPolicy.FIRST_ACCESS)
 
@@ -486,6 +522,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 original_file=original_file,
                 allowed_emails=allowed_emails,
                 burn_policy=burn_policy,
+                description=description,
                 reopen_existing=True,
                 admin_user=request.user,
                 client_ip=client_ip,
@@ -496,6 +533,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             obj.pk = doc.pk
             obj.id = doc.id
             obj.original_filename = doc.original_filename
+            obj.description = doc.description
             obj.file_hash = doc.file_hash
             obj.encrypted_file = doc.encrypted_file
             obj.encrypted_dek = doc.encrypted_dek
@@ -507,6 +545,10 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             obj._is_reactivated = is_reactivated
             obj._omitted_pending = omitted_pending
         else:
+            new_description = form.cleaned_data.get("description")
+            if new_description is not None:
+                obj.description = new_description
+
             reupload_file = form.cleaned_data.get("reupload_file")
             if reupload_file:
                 allowed_emails = form.cleaned_data.get("allowed_emails", obj.allowed_emails)
@@ -523,6 +565,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                     original_file=reupload_file,
                     new_emails=allowed_emails,
                     burn_policy=burn_policy,
+                    new_description=new_description,
                     admin_user=request.user,
                     client_ip=client_ip,
                     user_agent=user_agent,
@@ -629,6 +672,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         return JsonResponse({
             "exists": True,
             "filename": doc.original_filename,
+            "description": doc.description,
             "is_consumed": doc.is_consumed,
             "pending_recipients": pending,
             "created_at": doc.created_at.strftime("%Y-%m-%d %H:%M") if doc.created_at else "",
@@ -724,6 +768,20 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             '<span style="background:#022c22; color:#34d399; border:1px solid #10b981; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;">🟢 Activo (Listo para consumo)</span>'
         )
 
+    @admin.display(description=_("Plantilla Correo"))
+    def corporate_email_button(self, obj: EncryptedDocument) -> str:
+        """Botón interactivo en la lista para copiar el texto corporativo de notificación con hash y nombre de archivo."""
+        text = generate_corporate_email_text(obj)
+        escaped_json = json.dumps(text)
+        return format_html(
+            '<button type="button" class="button" style="background:#0f766e; color:#fff; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:0.8rem; cursor:pointer; border:none; display:inline-flex; align-items:center; gap:4px;" '
+            'onclick=\'navigator.clipboard.writeText({text_json}).then(() => {{ const orig = this.innerHTML; this.innerHTML="✅ ¡Copiado!"; this.style.background="#059669"; setTimeout(() => {{ this.innerHTML=orig; this.style.background="#0f766e"; }}, 2500); }}).catch(() => prompt("Copie el texto para el correo corporativo:", {text_json}));\' '
+            'title="Copiar texto corporativo con hash, nombre y descripción para enviar por correo al destinatario">'
+            '✉️ Plantilla'
+            '</button>',
+            text_json=escaped_json,
+        )
+
     @admin.display(description=_("Auditoría"))
     def audit_download_button(self, obj: EncryptedDocument) -> str:
         """Botón interactivo en la lista de documentos para descarga de auditoría."""
@@ -746,6 +804,39 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         return format_html(
             '<a class="button" href="{}" style="background-color: #ba2121; color: white; padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8rem; font-weight: bold;" title="Eliminar y triturar documento">🗑️</a>',
             url,
+        )
+
+    def corporate_email_template_panel(self, obj: EncryptedDocument) -> str:
+        """Panel con texto corporativo prediseñado listo para copiar o abrir en cliente de correo."""
+        text = generate_corporate_email_text(obj)
+        escaped_json = json.dumps(text)
+        destinatarios = ", ".join(obj.allowed_emails or [])
+        mailto_subject = quote(f"Documento confidencial disponible: {obj.original_filename}")
+        mailto_body = quote(text)
+        mailto_link = f"mailto:{destinatarios}?subject={mailto_subject}&body={mailto_body}"
+
+        return format_html(
+            '<div style="background:#0f172a; border:1px solid #334155; padding:14px; border-radius:8px; margin-bottom:15px; color:#e2e8f0;">'
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">'
+            '<strong style="color:#38bdf8; font-size:0.95rem;">✉️ Texto Corporativo Prediseñado para Correo Electrónico:</strong>'
+            '<div style="display:flex; gap:8px;">'
+            '<button type="button" class="button" style="background:#0284c7; color:#fff; padding:5px 12px; border-radius:4px; font-weight:bold; font-size:0.82rem; cursor:pointer; border:none;" '
+            'onclick=\'navigator.clipboard.writeText({text_json}).then(() => {{ const orig = this.innerHTML; this.innerHTML="✅ ¡Texto copiado al portapapeles!"; this.style.background="#059669"; setTimeout(() => {{ this.innerHTML=orig; this.style.background="#0284c7"; }}, 2500); }}).catch(() => prompt("Copie el texto para el correo:", {text_json}));\'>'
+            '📋 Copiar texto para correo'
+            '</button>'
+            '<a href="{mailto_link}" class="button" style="background:#475569; color:#fff; padding:5px 12px; border-radius:4px; font-weight:bold; font-size:0.82rem; text-decoration:none; display:inline-block;" title="Abrir en cliente de correo local">'
+            '📨 Abrir en cliente de correo'
+            '</a>'
+            '</div>'
+            '</div>'
+            '<div style="font-size:0.82rem; color:#94a3b8; margin-bottom:8px;">'
+            'Utilice este texto para notificar formalmente a los destinatarios. Incluye el localizador unívoco (SHA-256), nombre del archivo, descripción e instrucciones de canje.'
+            '</div>'
+            '<textarea readonly rows="9" style="width:100%; box-sizing:border-box; background:#1e293b; color:#f1f5f9; border:1px solid #475569; border-radius:6px; font-family:monospace; font-size:0.85rem; padding:10px; line-height:1.45; resize:vertical;" id="corporate_email_textarea">{text}</textarea>'
+            '</div>',
+            text=text,
+            text_json=escaped_json,
+            mailto_link=mailto_link,
         )
 
     def audit_download_panel(self, obj: EncryptedDocument) -> str:

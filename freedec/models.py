@@ -35,6 +35,12 @@ class EncryptedDocument(models.Model):
         verbose_name=_("Nombre original del documento"),
         help_text=_("Nombre del archivo original cargado en el sistema."),
     )
+    description = models.TextField(
+        default="Documento confidencial tramitado a través de la pasarela segura Freedec.",
+        blank=True,
+        verbose_name=_("Descripción del documento"),
+        help_text=_("Descripción informativa o motivo confidencial para las notificaciones por correo."),
+    )
     file_hash = models.CharField(
         max_length=64,
         unique=True,

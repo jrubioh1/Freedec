@@ -178,6 +178,7 @@ sequenceDiagram
 ### 4.1. `EncryptedDocument`
 * `original_filename`: Nombre original del documento subido (`max_length=255`).
 * `file_hash`: Hash SHA-256 del contenido original (`max_length=64, unique=True, db_index=True`).
+* `description`: Descripción editable del documento (`TextField`, valor corporativo por defecto, editable en altas y reactivaciones, visible en correos y plantillas).
 * `encrypted_file`: Archivo cifrado en reposo (`upload_to="encrypted_docs/%Y/%m/"`).
 * `encrypted_dek`: Clave Maestra de Datos (DEK) protegida y cifrada con `settings.FREEDEC_FERNET_KEY`.
 * `allowed_emails`: Lista JSON de correos autorizados en minúsculas.

@@ -22,6 +22,7 @@ from freedec.services import (
     admin_decrypt_document,
     calculate_file_sha256,
     consume_document_with_otp,
+    generate_corporate_email_text,
     reactivate_document,
     request_document_access,
     shred_and_delete_file,
@@ -550,4 +551,67 @@ class FreedecSecurityAndServicesTestCase(TestCase):
         self.assertEqual(doc1.pk, doc2.pk)
         self.assertTrue(getattr(doc2, "_is_reactivated", False))
         self.assertIn(new_email, doc2.allowed_emails)
+
+    def test_email_content_includes_filename_description_and_hash(self):
+        """Los correos de verificación y avisos deben incluir nombre de archivo, descripción y hash SHA-256."""
+        custom_desc = "Informe pericial confidencial de auditoría externa ejercicio 2026."
+        upload_file = SimpleUploadedFile("informe_pericial.pdf", self.test_content)
+        doc = upload_and_encrypt_document(
+            upload_file,
+            allowed_emails=[self.allowed_email],
+            description=custom_desc,
+        )
+
+        mail.outbox.clear()
+        success, _ = request_document_access(doc.file_hash, self.allowed_email)
+        self.assertTrue(success)
+        self.assertEqual(len(mail.outbox), 1)
+
+        sent_mail = mail.outbox[0]
+        self.assertIn("informe_pericial.pdf", sent_mail.subject)
+        self.assertIn("informe_pericial.pdf", sent_mail.body)
+        self.assertIn(custom_desc, sent_mail.body)
+        self.assertIn(doc.file_hash, sent_mail.body)
+
+    def test_generate_corporate_email_text(self):
+        """La función generate_corporate_email_text genera el formato corporativo con todos los datos necesarios."""
+        custom_desc = "Documentación fiscal sensible para entrega confidencial."
+        upload_file = SimpleUploadedFile("declaracion_renta.pdf", self.test_content)
+        doc = upload_and_encrypt_document(
+            upload_file,
+            allowed_emails=[self.allowed_email],
+            description=custom_desc,
+        )
+
+        text = generate_corporate_email_text(doc)
+        self.assertIn("declaracion_renta.pdf", text)
+        self.assertIn(custom_desc, text)
+        self.assertIn(doc.file_hash, text)
+        self.assertIn(f"/freedec/solicitar/?hash={doc.file_hash}", text)
+        self.assertIn("Servicio de Entrega Segura - Freedec", text)
+
+    def test_reactivate_document_updates_description(self):
+        """Al reactivar un documento, se permite actualizar la descripción y ésta persiste."""
+        upload_file = SimpleUploadedFile("doc_reactivar_desc.pdf", self.test_content)
+        doc = upload_and_encrypt_document(
+            upload_file,
+            allowed_emails=[self.allowed_email],
+            description="Descripción inicial",
+        )
+        self.assertEqual(doc.description, "Descripción inicial")
+
+        reupload = SimpleUploadedFile("doc_reactivar_desc.pdf", self.test_content)
+        new_desc = "Descripción completamente renovada para la nueva fase."
+        reactivated = reactivate_document(
+            document=doc,
+            original_file=reupload,
+            new_emails=["nuevo@seguro.gob.es"],
+            new_description=new_desc,
+            admin_user=self.admin_user,
+        )
+
+        self.assertEqual(reactivated.description, new_desc)
+        doc.refresh_from_db()
+        self.assertEqual(doc.description, new_desc)
+
 
