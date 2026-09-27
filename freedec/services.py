@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE: int = 64 * 1024  # 64 KB para lectura segura por bloques anti-DoS (OWASP A04)
 HASH_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
 GENERIC_ACCESS_MESSAGE: str = _(
-    "Si los datos indicados corresponden a un documento activo y una dirección de correo "
-    "autorizada, recibirá en breves momentos un código de verificación (OTP) en su buzón."
+    "Si los datos indicados corresponden a un documento disponible y una dirección de correo "
+    "autorizada, recibirá en breve un código de verificación en su buzón."
 )
 
 
@@ -326,18 +326,22 @@ def request_document_access(
         desc_part = f"• Descripción: {document.description}\n" if document.description else ""
         
         post_consume_message = (
-            f"El documento confidencial ya fue retirado de la pasarela el {consumed_at_str} por {consumed_by_str}.\n\n"
+            f"Estimado/a usuario/a,\n\n"
+            f"Le informamos de que el documento solicitado ya fue retirado de la pasarela el {consumed_at_str} por {consumed_by_str} "
+            f"y no se encuentra disponible para su descarga.\n\n"
             f"DATOS DEL DOCUMENTO:\n"
-            f"• Archivo original: {doc_name}\n"
+            f"• Archivo: {doc_name}\n"
             f"{desc_part}"
-            f"• Huella digital SHA-256: {document.file_hash}\n\n"
-            f"Por motivos estrictos de seguridad y privacidad (destrucción tras entrega), "
-            f"el archivo físico ha sido eliminado. Solicite una copia directamente a dicha dirección."
+            f"• Identificador (SHA-256): {document.file_hash}\n\n"
+            f"Por motivos de confidencialidad y seguridad, el documento deja de estar accesible en la plataforma tras su entrega. "
+            f"Si precisa una copia, por favor solicítela directamente a dicha dirección.\n\n"
+            f"Atentamente,\n"
+            f"Servicio de Entrega Segura - Freedec"
         )
 
         try:
             send_mail(
-                subject=_("Aviso de Seguridad: Documento '%(filename)s' ya retirado de la pasarela")
+                subject=_("Información sobre su solicitud: Documento '%(filename)s'")
                 % {"filename": doc_name},
                 message=post_consume_message,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
@@ -372,13 +376,18 @@ def request_document_access(
         desc_part = f"• Descripción: {document.description}\n" if document.description else ""
         try:
             send_mail(
-                subject=f"[Freedec] Copia ya descargada: {doc_name}",
+                subject=_("Aviso: Copia ya descargada de '%(filename)s'") % {"filename": doc_name},
                 message=(
-                    f"Usted ya ha descargado previamente una copia del documento confidencial:\n"
+                    f"Estimado/a usuario/a,\n\n"
+                    f"Le comunicamos que su dirección de correo ya ha descargado previamente este documento.\n\n"
+                    f"DATOS DEL DOCUMENTO:\n"
                     f"• Archivo: {doc_name}\n"
                     f"{desc_part}"
-                    f"• Huella digital SHA-256: {document.file_hash}\n\n"
-                    f"Cada destinatario autorizado dispone de una única descarga permitida."
+                    f"• Identificador (SHA-256): {document.file_hash}\n\n"
+                    f"Por motivos de seguridad, cada destinatario autorizado dispone de una única descarga. "
+                    f"Si necesita volver a consultar el archivo, por favor revise sus descargas locales o contacte con el remitente.\n\n"
+                    f"Atentamente,\n"
+                    f"Servicio de Entrega Segura - Freedec"
                 ),
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@freedec.local"),
                 recipient_list=[normalized_email],
@@ -417,27 +426,30 @@ def request_document_access(
         redeem_url = f"{base_url.rstrip('/')}{redeem_path}{query_params}" if base_url else f"{redeem_path}{query_params}"
 
         policy_note = (
-            "AVISO DE SEGURIDAD (Destrucción tras acceso de todos): El archivo permanecerá disponible hasta que todos los destinatarios hayan accedido."
+            "El documento permanecerá disponible hasta que todos los destinatarios autorizados hayan completado su descarga."
             if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
-            else "AVISO DE SEGURIDAD (Burn-After-Read): Al primer canje exitoso, el archivo almacenado en disco será destruido físicamente de forma permanente."
+            else "Por motivos de seguridad y confidencialidad, el documento dejará de estar disponible una vez completada la primera descarga."
         )
 
         doc_name = document.original_filename or f"Documento_{document.file_hash[:8]}"
         desc_part = f"• Descripción: {document.description}\n" if document.description else ""
-        email_subject = _("Código de verificación OTP para '%(filename)s' - Freedec") % {"filename": doc_name}
+        email_subject = _("Código de verificación para '%(filename)s' - Freedec") % {"filename": doc_name}
         email_body = (
-            f"Ha solicitado el canje del documento confidencial:\n"
+            f"Estimado/a usuario/a,\n\n"
+            f"Ha solicitado el acceso al siguiente documento:\n"
             f"• Archivo: {doc_name}\n"
             f"{desc_part}"
-            f"• Huella digital SHA-256 (Prueba unívoca de trámite):\n"
+            f"• Identificador (SHA-256):\n"
             f"  {document.file_hash}\n\n"
-            f"Su código de verificación OTP de un solo uso es:\n"
+            f"Su código de verificación temporal es:\n"
             f"{otp_code}\n\n"
-            f"Validez estricta: 15 minutos.\n"
-            f"Intentos máximos permitidos: 3 intentos.\n\n"
-            f"Puede acceder directamente para canjearlo en el siguiente enlace:\n"
+            f"Validez: 15 minutos (máximo 3 intentos permitidos).\n\n"
+            f"Puede acceder directamente a la descarga a través del siguiente enlace:\n"
             f"{redeem_url}\n\n"
-            f"{policy_note}"
+            f"Aviso de seguridad:\n"
+            f"{policy_note}\n\n"
+            f"Atentamente,\n"
+            f"Servicio de Entrega Segura - Freedec"
         )
 
         try:
@@ -467,31 +479,31 @@ def request_document_access(
 
 def generate_corporate_email_text(document: EncryptedDocument, base_url: Optional[str] = None) -> str:
     """
-    Genera el texto corporativo por defecto de Freedec para notificar al destinatario,
-    incluyendo nombre del archivo, descripción, hash SHA-256 e instrucciones de acceso.
+    Genera el texto formal para notificar al destinatario,
+    incluyendo nombre del archivo, descripción, identificador SHA-256 e instrucciones de acceso.
     """
     url_root = (base_url or getattr(settings, "FREEDEC_BASE_URL", "http://127.0.0.1:8000")).rstrip("/")
     solicitar_url = f"{url_root}/freedec/solicitar/?hash={document.file_hash}"
     policy_desc = (
-        "El documento permanecerá disponible en la plataforma hasta que todos los destinatarios autorizados hayan realizado su descarga."
+        "El documento permanecerá disponible en la plataforma hasta que todos los destinatarios autorizados hayan completado su descarga."
         if document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
-        else "Por estrictos motivos de seguridad y confidencialidad (Burn-After-Read), el archivo cifrado almacenado en el servidor será destruido de forma permanente e irreversible tras el primer canje exitoso."
+        else "Por motivos de seguridad y confidencialidad, el documento dejará de estar disponible una vez completada la primera descarga."
     )
     desc_part = f"\n• Descripción: {document.description}" if document.description else ""
 
     return (
         f"Estimado/a destinatario/a,\n\n"
-        f"Le informamos de que se ha puesto a su disposición un documento confidencial a través de la pasarela segura Freedec.\n\n"
-        f"DETALLES DEL DOCUMENTO:\n"
+        f"Le informamos de que se ha puesto a su disposición el siguiente documento para su descarga segura a través de Freedec:\n\n"
+        f"DATOS DEL DOCUMENTO:\n"
         f"• Nombre del archivo: {document.original_filename}"
         f"{desc_part}\n"
-        f"• Localizador oficial (Hash SHA-256):\n"
+        f"• Identificador (Hash SHA-256):\n"
         f"  {document.file_hash}\n\n"
-        f"INSTRUCCIONES PARA EL CANJE SEGURO:\n"
-        f"1. Acceda al siguiente enlace oficial para tramitar la entrega:\n"
+        f"INSTRUCCIONES DE DESCARGA:\n"
+        f"1. Acceda al siguiente enlace para iniciar la descarga:\n"
         f"   {solicitar_url}\n"
-        f"2. Indique su dirección de correo electrónico autorizada para recibir su código de verificación temporal de un solo uso (OTP).\n"
-        f"3. Introduzca el código OTP de 6 dígitos en la pasarela para iniciar la descarga inmediata del archivo original descifrado en memoria RAM.\n\n"
+        f"2. Indique su dirección de correo electrónico para recibir un código de verificación temporal.\n"
+        f"3. Introduzca el código recibido en la pasarela para descargar el archivo.\n\n"
         f"AVISO DE SEGURIDAD:\n"
         f"{policy_desc}\n\n"
         f"Atentamente,\n"
@@ -526,14 +538,14 @@ def consume_document_with_otp(
     )
 
     if not token or not token.is_valid():
-        return False, b"", "", _("Código inválido o expirado.")
+        return False, b"", "", _("El código de verificación no es válido o ha expirado.")
 
     document = token.document
 
     if document.is_consumed:
         token.is_used = True
         token.save(update_fields=["is_used"])
-        return False, b"", "", _("El documento ya fue canjeado y destruido previamente.")
+        return False, b"", "", _("El documento ya no se encuentra disponible para su descarga.")
 
     if (
         document.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS
@@ -545,7 +557,7 @@ def consume_document_with_otp(
             False,
             b"",
             "",
-            _("Usted ya ha descargado previamente una copia de este documento. Cada destinatario autorizado dispone de una única descarga permitida."),
+            _("Usted ya ha descargado este documento con anterioridad. Cada destinatario dispone de un único acceso."),
         )
 
     is_match = secrets.compare_digest(token.otp_code.encode("utf-8"), clean_otp.encode("utf-8"))
@@ -564,7 +576,7 @@ def consume_document_with_otp(
                 False,
                 b"",
                 "",
-                _("Código inválido. Ha superado el número máximo de 3 intentos y el acceso ha sido bloqueado."),
+                _("Ha superado el número máximo de intentos permitidos. El acceso ha sido bloqueado por seguridad."),
             )
         else:
             remaining = 3 - token.failed_attempts

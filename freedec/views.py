@@ -143,7 +143,7 @@ class RedeemOtpView(View):
         if not file_hash or not email:
             messages.warning(
                 request,
-                _("Debe solicitar acceso con el Hash SHA-256 de su trámite antes de canjear el código OTP."),
+                _("Debe solicitar el acceso con el identificador del documento antes de introducir el código de verificación."),
             )
             try:
                 request_url = reverse("freedec:request-access")

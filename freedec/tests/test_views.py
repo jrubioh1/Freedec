@@ -302,21 +302,21 @@ class FreedecViewsSecurityTestCase(TestCase):
         resp = self.client.get(changelist_url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Descargado por 1/2 destinatarios")
-        self.assertContains(resp, "1/2 accedidos")
+        self.assertContains(resp, "1/2 descargados")
         self.assertContains(resp, "Plantilla")
 
     def test_admin_change_form_renders_corporate_email_template_and_allows_editing_description(self):
         """
         En el formulario de edición de EncryptedDocument en el Admin:
-        - Se renderiza el panel de plantilla corporativa con textarea y botón de copiado.
+        - Se renderiza el panel de plantilla con textarea y botón de copiado.
         - Se permite modificar el campo de descripción y éste persiste al guardar.
         """
         self.client.force_login(self.superuser)
         change_url = reverse("admin:freedec_encrypteddocument_change", args=[self.document.pk])
         resp = self.client.get(change_url)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Texto Corporativo Prediseñado")
-        self.assertContains(resp, "Copiar texto para correo")
+        self.assertContains(resp, "Plantilla de Notificación por Correo Electrónico")
+        self.assertContains(resp, "Copiar texto")
         self.assertContains(resp, self.document.file_hash)
         self.assertContains(resp, self.document.original_filename)
 

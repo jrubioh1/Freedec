@@ -26,8 +26,8 @@ class EncryptedDocument(models.Model):
     """
 
     class BurnPolicy(models.TextChoices):
-        FIRST_ACCESS = "FIRST_ACCESS", _("Con que solo acceda uno (al primer acceso)")
-        ALL_RECIPIENTS = "ALL_RECIPIENTS", _("Cuando accedan todos (destruir tras el acceso de todos)")
+        FIRST_ACCESS = "FIRST_ACCESS", _("Descarga única (primer acceso)")
+        ALL_RECIPIENTS = "ALL_RECIPIENTS", _("Disponible para todos los destinatarios")
 
     original_filename = models.CharField(
         max_length=255,
@@ -36,10 +36,10 @@ class EncryptedDocument(models.Model):
         help_text=_("Nombre del archivo original cargado en el sistema."),
     )
     description = models.TextField(
-        default="Documento confidencial tramitado a través de la pasarela segura Freedec.",
+        default="Documento confidencial compartido a través de la pasarela segura Freedec.",
         blank=True,
         verbose_name=_("Descripción del documento"),
-        help_text=_("Descripción informativa o motivo confidencial para las notificaciones por correo."),
+        help_text=_("Descripción informativa para las notificaciones por correo electrónico."),
     )
     file_hash = models.CharField(
         max_length=64,
@@ -219,14 +219,14 @@ class DocumentAccessLog(models.Model):
     """
 
     class Action(models.TextChoices):
-        SOLICITUD_OTP = "solicitud_otp", _("Solicitud de OTP")
-        OTP_ENVIADO = "otp_enviado", _("OTP enviado al solicitante")
-        DESCIFRADO_EXITOSO_BURN = "descifrado_exitoso_burn", _("Descifrado exitoso y destrucción segura (Burn-After-Read)")
-        DESCIFRADO_PARCIAL_PRESERVADO = "descifrado_parcial_preservado", _("Descifrado parcial (preservado para restantes destinatarios)")
-        REACTIVACION_DOCUMENTO = "reactivacion_documento", _("Reactivación y re-cifrado de documento")
-        INTENTO_POST_CONSUMO = "intento_post_consumo", _("Intento de acceso post-consumo")
-        OTP_INVALIDO_BLOQUEADO = "otp_invalido_bloqueado", _("OTP inválido / Bloqueado por intentos")
-        ADMIN_DESCARGA_PRESERVADA = "admin_descarga_preservada", _("Descarga de auditoría administrativa preservada")
+        SOLICITUD_OTP = "solicitud_otp", _("Solicitud de código de verificación")
+        OTP_ENVIADO = "otp_enviado", _("Código de verificación enviado")
+        DESCIFRADO_EXITOSO_BURN = "descifrado_exitoso_burn", _("Descarga completada y retirada de la pasarela")
+        DESCIFRADO_PARCIAL_PRESERVADO = "descifrado_parcial_preservado", _("Descarga individual completada (en espera de restantes destinatarios)")
+        REACTIVACION_DOCUMENTO = "reactivacion_documento", _("Reactivación de documento")
+        INTENTO_POST_CONSUMO = "intento_post_consumo", _("Acceso a documento no disponible")
+        OTP_INVALIDO_BLOQUEADO = "otp_invalido_bloqueado", _("Código bloqueado por intentos fallidos")
+        ADMIN_DESCARGA_PRESERVADA = "admin_descarga_preservada", _("Descarga de auditoría administrativa")
 
     document = models.ForeignKey(
         EncryptedDocument,

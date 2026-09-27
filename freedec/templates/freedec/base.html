@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>{% block title %}{% trans "Freedec - Cifrado y Recuperación Segura" %}{% endblock %}</title>
+    <title>{% block title %}{% trans "Freedec - Entrega Segura de Documentos" %}{% endblock %}</title>
     <style>
         :root {
             --bg-dark: #0f172a;
@@ -342,8 +342,8 @@
                 <div class="brand-icon">F</div>
                 <span>Freedec</span>
             </a>
-                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">🔑 {% trans "Solicitar Acceso" %}</a>
-                <a href="{% url 'freedec:gui-consume' %}" class="nav-link">📥 {% trans "Consumir Documento" %}</a>
+                <a href="{% url 'freedec:gui-public-request' %}" class="nav-link">{% trans "Solicitar Acceso" %}</a>
+                <a href="{% url 'freedec:gui-consume' %}" class="nav-link">{% trans "Descargar Documento" %}</a>
                 <div class="lang-switcher" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.05); padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border-color); margin-left: 0.5rem;">
                     <a href="{% url 'freedec:set-language' %}?lang=es&next={{ request.get_full_path|urlencode }}" 
                        class="lang-link" 
@@ -367,7 +367,7 @@
     </main>
 
     <footer>
-        <p>{% blocktrans %}Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y Recuperación de Contraseñas{% endblocktrans %}</p>
+        <p>{% blocktrans %}Freedec &copy; 2026 &mdash; Pasarela de Entrega Segura de Documentación{% endblocktrans %}</p>
     </footer>
 
     <script>

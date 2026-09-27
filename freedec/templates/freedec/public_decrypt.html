@@ -1,19 +1,19 @@
 {% extends "freedec/base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Canjear Documento con OTP" %} | Freedec{% endblock %}
+{% block title %}{% trans "Descargar Documento" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>🔥</span> {% trans "Canje y Verificación OTP (Burn-After-Read)" %}
+                <span>📥</span> {% trans "Verificación y Descarga de Documento" %}
             </h1>
-            <span class="badge badge-emerald">{% trans "Descarga Única" %}</span>
+            <span class="badge badge-emerald">{% trans "Descarga Segura" %}</span>
         </div>
         <p class="card-subtitle">
-            {% blocktrans %}Introduzca su <strong>código OTP de 6 dígitos</strong> recibido por correo para verificar su identidad, descifrar el documento en memoria RAM y descargarlo.{% endblocktrans %}
+            {% blocktrans %}Introduzca el <strong>código de verificación de 6 dígitos</strong> recibido en su correo electrónico para iniciar la descarga del archivo.{% endblocktrans %}
         </p>
     </div>
 
@@ -28,7 +28,7 @@
     {% if error_message %}
         <div class="alert alert-error">
             <div>
-                <strong>⚠️ {% trans "Aviso de Seguridad:" %}</strong><br>
+                <strong>{% trans "Aviso:" %}</strong><br>
                 {{ error_message }}
             </div>
         </div>
@@ -45,12 +45,12 @@
     {% if file_hash %}
         <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
             <div style="margin-bottom: 0.35rem; color: var(--text-muted);">
-                <strong style="color: var(--accent-cyan);">{% trans "Hash SHA-256 del trámite:" %}</strong><br>
+                <strong style="color: var(--accent-cyan);">{% trans "Identificador del documento:" %}</strong><br>
                 <code style="word-break: break-all; color: #bae6fd; font-family: monospace;">{{ file_hash }}</code>
             </div>
             {% if email %}
                 <div style="color: var(--text-muted); margin-top: 0.5rem;">
-                    <strong style="color: var(--accent-cyan);">{% trans "Buzón verificado:" %}</strong> {{ email }}
+                    <strong style="color: var(--accent-cyan);">{% trans "Dirección de correo:" %}</strong> {{ email }}
                 </div>
             {% endif %}
         </div>
@@ -75,19 +75,19 @@
         </div>
 
         <button type="submit" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">
-            📥 {% trans "Validar OTP, Descifrar y Descargar Documento" %}
+            {% trans "Verificar código y descargar documento" %}
         </button>
     </form>
 
     <div style="background-color: #0b1329; border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
         <h3 style="font-size: 0.95rem; color: #fca5a5; margin-bottom: 0.5rem;">
-            ⚠️ {% trans "Política de Seguridad y Destrucción Criptográfica:" %}
+            {% trans "Avisos de seguridad:" %}
         </h3>
         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 0.5rem;">
-            {% trans "Dispone de un máximo de 3 intentos fallidos de OTP. Si se agotan, el token se revocará automáticamente." %}
+            {% trans "Dispone de un máximo de 3 intentos para introducir el código de verificación recibido." %}
         </p>
         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin: 0;">
-            {% trans "En cuanto el código sea verificado con éxito, el archivo cifrado en disco será sobrescrito con bytes aleatorios y destruido físicamente de forma permanente (Burn-After-Read)." %}
+            {% trans "Por motivos de confidencialidad, el documento dejará de estar disponible en la plataforma una vez completada la entrega." %}
         </p>
     </div>
 </div>

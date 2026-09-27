@@ -19,7 +19,7 @@ class RequestAccessForm(forms.Form):
     """
 
     file_hash = forms.CharField(
-        label=_("Hash SHA-256 del Documento"),
+        label=_("Identificador del Documento (Hash SHA-256)"),
         max_length=64,
         min_length=64,
         widget=forms.TextInput(
@@ -31,7 +31,7 @@ class RequestAccessForm(forms.Form):
                 "spellcheck": "false",
             }
         ),
-        help_text=_("Huella digital SHA-256 única del archivo original asignada al trámite."),
+        help_text=_("Identificador de 64 caracteres facilitado para la descarga del documento."),
     )
     email = forms.EmailField(
         label=_("Correo Electrónico"),
@@ -43,14 +43,14 @@ class RequestAccessForm(forms.Form):
                 "autocomplete": "email",
             }
         ),
-        help_text=_("Buzón autorizado al que se enviará el código OTP de verificación en tiempo real."),
+        help_text=_("Dirección de correo autorizada donde recibirá el código de verificación."),
     )
 
     def clean_file_hash(self) -> str:
         raw_hash = (self.cleaned_data.get("file_hash") or "").strip().lower()
         if not HASH_REGEX.match(raw_hash):
             raise ValidationError(
-                _("El hash SHA-256 debe componerse exactamente de 64 caracteres hexadecimales [0-9a-f].")
+                _("El identificador SHA-256 debe componerse de 64 caracteres hexadecimales [0-9a-f].")
             )
         return raw_hash
 
@@ -61,7 +61,7 @@ class RequestAccessForm(forms.Form):
 
 class RedeemOtpForm(forms.Form):
     """
-    Formulario para el canje seguro y descifrado en memoria mediante código OTP de 6 dígitos.
+    Formulario para la descarga y verificación mediante código de 6 dígitos.
     """
 
     file_hash = forms.CharField(
@@ -75,7 +75,7 @@ class RedeemOtpForm(forms.Form):
         required=True,
     )
     otp_code = forms.CharField(
-        label=_("Código de Verificación OTP (6 dígitos)"),
+        label=_("Código de Verificación (6 dígitos)"),
         max_length=6,
         min_length=6,
         widget=forms.TextInput(
@@ -88,13 +88,13 @@ class RedeemOtpForm(forms.Form):
                 "autofocus": "autofocus",
             }
         ),
-        help_text=_("Introduzca el código numérico de 6 dígitos recibido por correo."),
+        help_text=_("Introduzca el código de 6 dígitos recibido en su correo electrónico."),
     )
 
     def clean_file_hash(self) -> str:
         raw_hash = (self.cleaned_data.get("file_hash") or "").strip().lower()
         if not HASH_REGEX.match(raw_hash):
-            raise ValidationError(_("Hash SHA-256 de documento no válido."))
+            raise ValidationError(_("El identificador SHA-256 no es válido."))
         return raw_hash
 
     def clean_email(self) -> str:
@@ -104,7 +104,7 @@ class RedeemOtpForm(forms.Form):
     def clean_otp_code(self) -> str:
         code = (self.cleaned_data.get("otp_code") or "").strip()
         if not code.isdigit() or len(code) != 6:
-            raise ValidationError(_("El código OTP debe consistir en 6 dígitos numéricos."))
+            raise ValidationError(_("El código de verificación debe contener 6 dígitos numéricos."))
         return code
 
 

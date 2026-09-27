@@ -1,19 +1,19 @@
 {% extends "freedec/base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Solicitar Canje de Documento" %} | Freedec{% endblock %}
+{% block title %}{% trans "Solicitar Documento" %} | Freedec{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 class="card-title">
-                <span>⚡</span> {% trans "Solicitud de Canje Desatendido (SHA-256 + OTP)" %}
+                <span>📄</span> {% trans "Descarga Segura de Documentos" %}
             </h1>
-            <span class="badge badge-cyan">{% trans "Zero-Trust" %}</span>
+            <span class="badge badge-cyan">{% trans "Acceso Seguro" %}</span>
         </div>
         <p class="card-subtitle">
-            {% trans "Introduzca la huella digital SHA-256 única del documento y su correo oficial autorizado para recibir un código de verificación en tiempo real (OTP)." %}
+            {% trans "Introduzca el identificador (SHA-256) del documento y su correo electrónico para recibir un código de verificación." %}
         </p>
     </div>
 
@@ -63,18 +63,18 @@
         </div>
 
         <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
-            📨 {% trans "Verificar y Solicitar Código OTP" %}
+            {% trans "Solicitar código de verificación" %}
         </button>
     </form>
 
     <div style="background-color: #0b1329; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 1.25rem; margin-top: 2rem;">
         <h3 style="font-size: 0.95rem; color: var(--accent-cyan); margin-bottom: 0.5rem;">
-            🛡️ {% trans "Garantías de Ciberseguridad:" %}
+            {% trans "Información sobre el servicio:" %}
         </h3>
         <ul style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin: 0; padding-left: 1.2rem;">
-            <li><strong>{% trans "Cero transporte del binario:" %}</strong> {% trans "Nunca suba archivos cifrados al navegador. El localizador oficial es exclusivamente el hash SHA-256." %}</li>
-            <li><strong>{% trans "Sin contraseñas humanas:" %}</strong> {% trans "El descifrado lo realiza internamente el backend en memoria RAM tras validar el código OTP." %}</li>
-            <li><strong>{% trans "Autodestrucción (Burn-After-Read):" %}</strong> {% trans "Al primer canje exitoso, el archivo en disco es sobrescrito con bytes aleatorios y destruido permanentemente." %}</li>
+            <li><strong>{% trans "Identificador único:" %}</strong> {% trans "El acceso se gestiona a través del código SHA-256 facilitado por el remitente." %}</li>
+            <li><strong>{% trans "Verificación por correo:" %}</strong> {% trans "Se remitirá un código temporal de un solo uso a la dirección de correo autorizada." %}</li>
+            <li><strong>{% trans "Confidencialidad:" %}</strong> {% trans "Una vez completada la entrega, el documento dejará de estar disponible en la plataforma conforme a las políticas de seguridad establecidas." %}</li>
         </ul>
     </div>
 </div>

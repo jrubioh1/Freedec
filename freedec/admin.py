@@ -438,11 +438,11 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         if obj is None:
             return (
                 (
-                    _("Cifrado y Registro de Nuevo Documento"),
+                    _("Registro de Documento"),
                     {
                         "fields": ("original_file", "description", "allowed_emails", "burn_policy"),
                         "description": _(
-                            "Suba el documento original, configure la descripción, los correos autorizados y seleccione la política de destrucción (primer acceso vs cuando accedan todos)."
+                            "Suba el documento original, configure la descripción informativa, los correos autorizados y seleccione la política de acceso (descarga única vs cuando accedan todos)."
                         ),
                     },
                 ),
@@ -573,7 +573,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 messages.success(
                     request,
                     format_html(
-                        "<strong>♻️ Documento reactivado con éxito:</strong> Se ha re-cifrado el archivo en disco y habilitado para {} destinatarios.",
+                        "<strong>Documento reactivado:</strong> Se ha habilitado el acceso para {} destinatarios.",
                         len(doc.allowed_emails or []),
                     ),
                 )
@@ -581,7 +581,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                     messages.warning(
                         request,
                         format_html(
-                            "⚠️ <strong>Aviso de destinatarios omitidos:</strong> Este documento aún no había finalizado y los siguientes destinatarios estaban pendientes de acceder: <strong>{}</strong>. Al no haberse vuelto a añadir a la lista, han perdido el acceso.",
+                            "<strong>Aviso de destinatarios omitidos:</strong> Los siguientes destinatarios estaban pendientes de descargar: <strong>{}</strong>. Al no haberse incluido en la lista, no dispondrán de acceso.",
                             ", ".join(omitted_pending),
                         ),
                     )
@@ -593,10 +593,10 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             messages.info(
                 request,
                 format_html(
-                    "<strong>♻️ REGISTRO HISTÓRICO EXISTENTE LOCALIZADO Y REACTIVADO (Hash: {})</strong><br><br>"
-                    "Se ha detectado el registro existente para este archivo. Se ha re-cifrado y reactivado en el sistema.<br>"
-                    "Total destinatarios habilitados: <strong>{}</strong>.<br>"
-                    "<em>Todo el historial previo de descargas y auditoría se mantiene preservado intacto.</em>",
+                    "<strong>Documento reactivado (Identificador: {})</strong><br><br>"
+                    "Se ha detectado un registro existente para este archivo y se ha actualizado en el sistema.<br>"
+                    "Total de destinatarios habilitados: <strong>{}</strong>.<br>"
+                    "<em>Se conserva el historial de accesos y auditoría.</em>",
                     obj.file_hash[:16],
                     len(obj.allowed_emails or []),
                 ),
@@ -605,7 +605,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
                 messages.warning(
                     request,
                     format_html(
-                        "⚠️ <strong>Aviso de destinatarios omitidos:</strong> Había destinatarios pendientes de acceder: <strong>{}</strong> que no fueron reincorporados a la lista.",
+                        "<strong>Aviso de destinatarios omitidos:</strong> Los destinatarios pendientes de acceder: <strong>{}</strong> no fueron reincorporados a la lista.",
                         ", ".join(obj._omitted_pending),
                     ),
                 )
@@ -613,10 +613,10 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             messages.success(
                 request,
                 format_html(
-                    "<strong>✅ Documento cifrado y registrado exitosamente.</strong><br>"
-                    "Hash SHA-256 (Localizador oficial del trámite):<br>"
+                    "<strong>Documento registrado correctamente.</strong><br>"
+                    "Identificador SHA-256 (Localizador de descarga):<br>"
                     "<code style='background:#1e293b; color:#38bdf8; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:1rem; user-select:all;'>{}</code><br><br>"
-                    "<em>Entregue exclusivamente este hash al destinatario. No se requiere ninguna contraseña humana.</em>",
+                    "<em>Facilite este identificador al destinatario para que pueda tramitar la descarga.</em>",
                     obj.file_hash,
                 ),
             )
@@ -691,7 +691,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         if doc.is_consumed:
             messages.error(
                 request,
-                _("El documento ya fue consumido y triturado físicamente del servidor (Burn-After-Read)."),
+                _("El documento ya fue entregado y no se encuentra disponible en la pasarela."),
             )
             return HttpResponseRedirect(reverse("admin:freedec_encrypteddocument_change", args=[object_id]))
 
@@ -742,17 +742,17 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
     def burn_policy_badge(self, obj: EncryptedDocument) -> str:
         if obj.burn_policy == EncryptedDocument.BurnPolicy.ALL_RECIPIENTS:
             return mark_safe(
-                '<span style="background:#1e1b4b; color:#c7d2fe; border:1px solid #6366f1; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.75rem;" title="Destrucción solo cuando todos los destinatarios hayan accedido">👥 Todos</span>'
+                '<span style="background:#1e1b4b; color:#c7d2fe; border:1px solid #6366f1; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.75rem;" title="Disponible para todos los destinatarios autorizados">Todos los destinatarios</span>'
             )
         return mark_safe(
-            '<span style="background:#18181b; color:#e4e4e7; border:1px solid #71717a; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.75rem;" title="Destrucción inmediata al primer acceso">⚡ 1er Acceso</span>'
+            '<span style="background:#18181b; color:#e4e4e7; border:1px solid #71717a; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.75rem;" title="Disponible para un único acceso (primer acceso)">Descarga única</span>'
         )
 
     @admin.display(description=_("Estado"))
     def consumption_status_badge(self, obj: EncryptedDocument) -> str:
         if obj.is_consumed:
             return format_html(
-                '<span style="background:#450a0a; color:#f87171; border:1px solid #ef4444; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;" title="Retirado el {}">🔥 Consumido ({})</span>',
+                '<span style="background:#450a0a; color:#f87171; border:1px solid #ef4444; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;" title="Retirado el {}">Retirado ({})</span>',
                 obj.consumed_at.strftime("%Y-%m-%d %H:%M UTC") if obj.consumed_at else "",
                 obj.consumed_by or _("desconocido"),
             )
@@ -760,24 +760,24 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
             total = len(obj.allowed_emails or [])
             consumed = len(obj.consumed_recipients or [])
             return format_html(
-                '<span style="background:#082f49; color:#38bdf8; border:1px solid #0284c7; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;" title="Descargado por {consumed}/{total} destinatarios">👥 Activo ({consumed}/{total} accedidos)</span>',
+                '<span style="background:#082f49; color:#38bdf8; border:1px solid #0284c7; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;" title="Descargado por {consumed}/{total} destinatarios">Disponible ({consumed}/{total} descargados)</span>',
                 consumed=consumed,
                 total=total,
             )
         return mark_safe(
-            '<span style="background:#022c22; color:#34d399; border:1px solid #10b981; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;">🟢 Activo (Listo para consumo)</span>'
+            '<span style="background:#022c22; color:#34d399; border:1px solid #10b981; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:0.8rem;">Disponible para descarga</span>'
         )
 
     @admin.display(description=_("Plantilla Correo"))
     def corporate_email_button(self, obj: EncryptedDocument) -> str:
-        """Botón interactivo en la lista para copiar el texto corporativo de notificación con hash y nombre de archivo."""
+        """Botón interactivo en la lista para copiar el texto de notificación con hash y nombre de archivo."""
         text = generate_corporate_email_text(obj)
         escaped_json = json.dumps(text)
         return format_html(
             '<button type="button" class="button" style="background:#0f766e; color:#fff; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:0.8rem; cursor:pointer; border:none; display:inline-flex; align-items:center; gap:4px;" '
-            'onclick=\'navigator.clipboard.writeText({text_json}).then(() => {{ const orig = this.innerHTML; this.innerHTML="✅ ¡Copiado!"; this.style.background="#059669"; setTimeout(() => {{ this.innerHTML=orig; this.style.background="#0f766e"; }}, 2500); }}).catch(() => prompt("Copie el texto para el correo corporativo:", {text_json}));\' '
-            'title="Copiar texto corporativo con hash, nombre y descripción para enviar por correo al destinatario">'
-            '✉️ Plantilla'
+            'onclick=\'navigator.clipboard.writeText({text_json}).then(() => {{ const orig = this.innerHTML; this.innerHTML="¡Copiado!"; this.style.background="#059669"; setTimeout(() => {{ this.innerHTML=orig; this.style.background="#0f766e"; }}, 2500); }}).catch(() => prompt("Copie el texto para el correo:", {text_json}));\' '
+            'title="Copiar plantilla de notificación para enviar por correo al destinatario">'
+            'Plantilla'
             '</button>',
             text_json=escaped_json,
         )
@@ -787,50 +787,50 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         """Botón interactivo en la lista de documentos para descarga de auditoría."""
         if obj.is_consumed:
             return format_html(
-                '<span style="background:#7f1d1d; color:#fca5a5; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:0.8rem;">🔥 Consumido</span>'
+                '<span style="background:#7f1d1d; color:#fca5a5; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:0.8rem;">Retirado</span>'
             )
         download_url = reverse("admin:freedec_encrypteddocument_audit_download", args=[obj.pk])
         return format_html(
             '<a href="{}" class="button" style="background:#0284c7; color:#fff; padding:3px 8px; border-radius:4px; text-decoration:none; font-weight:bold; font-size:0.8rem;" title="Descarga de auditoría administrativa">'
-            '📥 Auditoría'
+            'Auditoría'
             '</a>',
             download_url,
         )
 
     @admin.display(description=_("Eliminar"))
     def delete_action_button(self, obj: EncryptedDocument) -> str:
-        """Botón directo de eliminación con trituración física en disco."""
+        """Botón directo de eliminación de documento."""
         url = reverse("admin:freedec_encrypteddocument_delete", args=[obj.pk])
         return format_html(
-            '<a class="button" href="{}" style="background-color: #ba2121; color: white; padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8rem; font-weight: bold;" title="Eliminar y triturar documento">🗑️</a>',
+            '<a class="button" href="{}" style="background-color: #ba2121; color: white; padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8rem; font-weight: bold;" title="Eliminar documento">🗑️</a>',
             url,
         )
 
     def corporate_email_template_panel(self, obj: EncryptedDocument) -> str:
-        """Panel con texto corporativo prediseñado listo para copiar o abrir en cliente de correo."""
+        """Panel con texto formal prediseñado listo para copiar o abrir en cliente de correo."""
         text = generate_corporate_email_text(obj)
         escaped_json = json.dumps(text)
         destinatarios = ", ".join(obj.allowed_emails or [])
-        mailto_subject = quote(f"Documento confidencial disponible: {obj.original_filename}")
+        mailto_subject = quote(f"Documento disponible para su descarga: {obj.original_filename}")
         mailto_body = quote(text)
         mailto_link = f"mailto:{destinatarios}?subject={mailto_subject}&body={mailto_body}"
 
         return format_html(
             '<div style="background:#0f172a; border:1px solid #334155; padding:14px; border-radius:8px; margin-bottom:15px; color:#e2e8f0;">'
             '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">'
-            '<strong style="color:#38bdf8; font-size:0.95rem;">✉️ Texto Corporativo Prediseñado para Correo Electrónico:</strong>'
+            '<strong style="color:#38bdf8; font-size:0.95rem;">Plantilla de Notificación por Correo Electrónico:</strong>'
             '<div style="display:flex; gap:8px;">'
             '<button type="button" class="button" style="background:#0284c7; color:#fff; padding:5px 12px; border-radius:4px; font-weight:bold; font-size:0.82rem; cursor:pointer; border:none;" '
-            'onclick=\'navigator.clipboard.writeText({text_json}).then(() => {{ const orig = this.innerHTML; this.innerHTML="✅ ¡Texto copiado al portapapeles!"; this.style.background="#059669"; setTimeout(() => {{ this.innerHTML=orig; this.style.background="#0284c7"; }}, 2500); }}).catch(() => prompt("Copie el texto para el correo:", {text_json}));\'>'
-            '📋 Copiar texto para correo'
+            'onclick=\'navigator.clipboard.writeText({text_json}).then(() => {{ const orig = this.innerHTML; this.innerHTML="¡Texto copiado!"; this.style.background="#059669"; setTimeout(() => {{ this.innerHTML=orig; this.style.background="#0284c7"; }}, 2500); }}).catch(() => prompt("Copie el texto para el correo:", {text_json}));\'>'
+            'Copiar texto'
             '</button>'
             '<a href="{mailto_link}" class="button" style="background:#475569; color:#fff; padding:5px 12px; border-radius:4px; font-weight:bold; font-size:0.82rem; text-decoration:none; display:inline-block;" title="Abrir en cliente de correo local">'
-            '📨 Abrir en cliente de correo'
+            'Abrir en cliente de correo'
             '</a>'
             '</div>'
             '</div>'
             '<div style="font-size:0.82rem; color:#94a3b8; margin-bottom:8px;">'
-            'Utilice este texto para notificar formalmente a los destinatarios. Incluye el localizador unívoco (SHA-256), nombre del archivo, descripción e instrucciones de canje.'
+            'Utilice este texto formal para notificar a los destinatarios. Incluye el identificador (SHA-256), nombre del archivo, descripción e instrucciones de descarga.'
             '</div>'
             '<textarea readonly rows="9" style="width:100%; box-sizing:border-box; background:#1e293b; color:#f1f5f9; border:1px solid #475569; border-radius:6px; font-family:monospace; font-size:0.85rem; padding:10px; line-height:1.45; resize:vertical;" id="corporate_email_textarea">{text}</textarea>'
             '</div>',
@@ -844,18 +844,17 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
         if obj.is_consumed:
             return format_html(
                 '<div style="background:#450a0a; border:1px solid #dc2626; color:#fecaca; padding:10px; border-radius:6px;">'
-                '<strong>🔥 Documento consumido y triturado:</strong> '
-                'El archivo físico ha sido sobrescrito con bytes aleatorios y eliminado del disco. '
-                'No está disponible para descargas de auditoría.'
+                '<strong>Documento ya entregado:</strong> '
+                'El documento ya ha sido retirado de la pasarela y no se encuentra disponible para descargas de auditoría.'
                 '</div>'
             )
         download_url = reverse("admin:freedec_encrypteddocument_audit_download", args=[obj.pk])
         return format_html(
             '<div style="background:#082f49; border:1px solid #0284c7; padding:12px; border-radius:6px; color:#e0f2fe;">'
-            '<strong style="color:#38bdf8;">🛡️ Descarga de Auditoría Administrativa Preservada:</strong><br>'
-            '<span style="font-size:0.85rem; color:#bae6fd;">Permite al personal autorizado inspeccionar el archivo original descifrado SIN destruirlo ni marcarlo como consumido.</span><br><br>'
+            '<strong style="color:#38bdf8;">Descarga de Auditoría Administrativa:</strong><br>'
+            '<span style="font-size:0.85rem; color:#bae6fd;">Permite al personal autorizado inspeccionar el archivo original descifrado sin afectar a la disponibilidad para los destinatarios.</span><br><br>'
             '<a href="{}" class="button" style="background:#0284c7; color:#fff; padding:6px 14px; border-radius:4px; font-weight:bold; text-decoration:none; display:inline-block;">'
-            '📥 Descargar copia de auditoría'
+            'Descargar copia de auditoría'
             '</a>'
             '</div>',
             download_url,
