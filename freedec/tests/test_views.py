@@ -298,12 +298,30 @@ class FreedecViewsSecurityTestCase(TestCase):
         doc_all.consumed_recipients = ["u1@test.com"]
         doc_all.save()
 
+        # Crear un tercer documento consumido para verificar badges y botones de documentos retirados
+        third_file = SimpleUploadedFile("tercer_doc.pdf", b"%PDF-1.4\nthird test content\n%%EOF\n")
+        doc_consumed = upload_and_encrypt_document(
+            third_file,
+            allowed_emails=["u3@test.com"],
+            burn_policy=EncryptedDocument.BurnPolicy.FIRST_ACCESS,
+        )
+        doc_consumed.is_consumed = True
+        doc_consumed.consumed_by = "u3@test.com"
+        doc_consumed.save()
+
         changelist_url = reverse("admin:freedec_encrypteddocument_changelist")
         resp = self.client.get(changelist_url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Descargado por 1/2 destinatarios")
         self.assertContains(resp, "1/2 descargados")
         self.assertContains(resp, "Plantilla")
+        self.assertContains(resp, "Retirado")
+
+        # Verificar también que el panel de auditoría en la vista de detalle de un documento consumido renderiza sin error
+        change_consumed_url = reverse("admin:freedec_encrypteddocument_change", args=[doc_consumed.pk])
+        resp_change = self.client.get(change_consumed_url)
+        self.assertEqual(resp_change.status_code, 200)
+        self.assertContains(resp_change, "Documento ya entregado")
 
     def test_admin_change_form_renders_corporate_email_template_and_allows_editing_description(self):
         """

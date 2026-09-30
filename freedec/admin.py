@@ -793,7 +793,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
     def audit_download_button(self, obj: EncryptedDocument) -> str:
         """Botón interactivo en la lista de documentos para descarga de auditoría."""
         if obj.is_consumed:
-            return format_html(
+            return mark_safe(
                 '<span style="background:#7f1d1d; color:#fca5a5; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:0.8rem;">Retirado</span>'
             )
         download_url = reverse("admin:freedec_encrypteddocument_audit_download", args=[obj.pk])
@@ -849,7 +849,7 @@ class EncryptedDocumentAdmin(admin.ModelAdmin):
     def audit_download_panel(self, obj: EncryptedDocument) -> str:
         """Panel de herramientas de auditoría en la vista detallada del documento."""
         if obj.is_consumed:
-            return format_html(
+            return mark_safe(
                 '<div style="background:#450a0a; border:1px solid #dc2626; color:#fecaca; padding:10px; border-radius:6px;">'
                 '<strong>Documento ya entregado:</strong> '
                 'El documento ya ha sido retirado de la pasarela y no se encuentra disponible para descargas de auditoría.'
