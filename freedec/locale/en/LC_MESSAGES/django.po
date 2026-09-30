@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 19:54+0000\n"
+"POT-Creation-Date: 2026-09-30 08:47+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,11 +17,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: freedec/admin.py:127
-msgid "Archivo Documental Original"
-msgstr "Original Document File"
+#: freedec/admin.py:262
+msgid "Archivo confidencial original"
+msgstr "Original confidential file"
 
-#: freedec/admin.py:129
+#: freedec/admin.py:265
 msgid ""
 "Formatos admitidos: PDF, LibreOffice (.odt, .ods, .odp, .odg) o Microsoft "
 "Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
@@ -29,432 +29,535 @@ msgstr ""
 "Supported formats: PDF, LibreOffice (.odt, .ods, .odp, .odg), or Microsoft "
 "Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)."
 
-#: freedec/admin.py:133
-msgid "Contraseña (Opcional)"
-msgstr "Password (Optional)"
+#: freedec/admin.py:269 freedec/admin.py:335 freedec/models.py:41
+msgid "Descripción del documento"
+msgstr "Document description"
 
-#: freedec/admin.py:136
-msgid "Dejar en blanco para autogenerar una clave segura..."
-msgstr "Leave blank to auto-generate a secure key..."
+#: freedec/admin.py:276 freedec/admin.py:341
+msgid "Descripción informativa o motivo confidencial del trámite..."
+msgstr "Informative description or confidential reason for the request..."
 
-#: freedec/admin.py:139
+#: freedec/admin.py:280
 msgid ""
-"Opcional. Si se deja en blanco, el sistema genera automáticamente una clave "
-"de 24 caracteres."
-msgstr ""
-"Optional. If left blank, the system automatically generates a 24-character "
-"key."
+"Descripción que se incluirá en las notificaciones por correo y en la "
+"plantilla corporativa."
+msgstr "Description that will be included in email notifications and corporate template."
 
-#: freedec/admin.py:143 freedec/admin.py:176
-msgid "Correos Autorizados"
-msgstr "Authorized Emails"
+#: freedec/admin.py:284 freedec/admin.py:349 freedec/models.py:63
+msgid "Correos autorizados"
+msgstr "Authorized emails"
 
-#: freedec/admin.py:146
+#: freedec/admin.py:286
+msgid "Direcciones de correo autorizadas para solicitar el canje con OTP."
+msgstr "Authorized email addresses to request OTP redemption."
+
+#: freedec/admin.py:289 freedec/admin.py:355
+msgid "Política de Destrucción"
+msgstr "Destruction Policy"
+
+#: freedec/admin.py:295
 msgid ""
-"Destinatarios autorizados. Use '+' para añadir más direcciones (sin JSON)."
-msgstr "Authorized recipients. Use '+' to add more addresses (no JSON)."
+"Seleccione si el archivo en disco debe destruirse de inmediato al primer "
+"acceso de cualquiera o conservarse hasta que todos los destinatarios "
+"autorizados lo hayan descargado."
+msgstr "Select whether the file on disk should be destroyed immediately upon the first access by anyone or kept until all authorized recipients have downloaded it."
 
-#: freedec/admin.py:179
-msgid "Destinatarios autorizados. Use '+' para añadir o modificar direcciones."
-msgstr "Authorized recipients. Use '+' to add or modify addresses."
+#: freedec/admin.py:309
+msgid "Debe seleccionar un archivo."
+msgstr "You must select a file."
 
-#: freedec/admin.py:204
-msgid "Registro de acceso"
-msgstr "Access Log"
+#: freedec/admin.py:327
+msgid "Re-subir archivo original (Reactivar)"
+msgstr "Re-upload original file (Reactivate)"
 
-#: freedec/admin.py:205
-msgid "Historial de accesos y trazabilidad de clave"
-msgstr "Access history and key traceability"
-
-#: freedec/admin.py:245
-msgid "Cifrado y Registro de Nuevo Documento"
-msgstr "Encryption and New Document Registration"
-
-#: freedec/admin.py:249
+#: freedec/admin.py:331
 msgid ""
-"Suba el archivo original. La contraseña y el código de acceso se generarán "
-"automáticamente mediante algoritmos de alta entropía."
-msgstr ""
-"Upload the original file. The password and access code will be generated "
-"automatically using high-entropy algorithms."
+"Si el documento ya fue consumido o desea habilitar nuevos destinatarios, "
+"suba aquí el archivo original. Se re-cifrará y reactivará manteniendo la "
+"trazabilidad histórica."
+msgstr "If the document was already consumed or you wish to authorize new recipients, upload the original file here. It will be re-encrypted and reactivated while preserving audit history."
 
-#: freedec/admin.py:256
-msgid "Nombre e Identificación Criptográfica"
-msgstr "Cryptographic Name and Identification"
-
-#: freedec/admin.py:259
-msgid "Nombre original y hash SHA-256 del archivo calculado en la subida."
-msgstr "Original filename and SHA-256 hash calculated during upload."
-
-#: freedec/admin.py:263
-msgid "Almacenamiento Cifrado"
-msgstr "Encrypted Storage"
-
-#: freedec/admin.py:267
+#: freedec/admin.py:345
 msgid ""
-"El archivo y la contraseña se encuentran cifrados en reposo con Fernet "
-"(AES-128-CBC + HMAC)."
-msgstr ""
-"The file and password are encrypted at rest with Fernet (AES-128-CBC + HMAC)."
+"Descripción que se incluirá en las notificaciones por correo y en la "
+"plantilla corporativa. Puede modificarse tanto en documentos activos como "
+"reactivados."
+msgstr "Description that will be included in email notifications and corporate template. Can be modified for both active and reactivated documents."
 
-#: freedec/admin.py:272
-msgid "Seguridad y Control de Acceso"
-msgstr "Security and Access Control"
+#: freedec/admin.py:352
+msgid "Destinatarios autorizados a solicitar el canje con OTP."
+msgstr "Recipients authorized to request redemption with OTP."
 
-#: freedec/admin.py:276
+#: freedec/admin.py:449
+msgid "Registro de Documento"
+msgstr "Document Registration"
+
+#: freedec/admin.py:453
 msgid ""
-"El código de acceso se almacena mediante hash PBKDF2 (Zero-Knowledge). Los "
-"correos pueden modificarse usando el botón '+'."
-msgstr ""
-"The access code is stored using PBKDF2 hash (Zero-Knowledge). Emails can be "
-"modified using the '+' button."
+"Suba el documento original, configure la descripción informativa, los "
+"correos autorizados y seleccione la política de acceso (descarga única vs "
+"cuando accedan todos)."
+msgstr "Upload original document, set informative description, authorized emails, and select access policy (single download vs all recipients)."
 
-#: freedec/admin.py:281
-msgid "Auditoría y Trazabilidad de Accesos"
-msgstr "Access Audit and Traceability"
+#: freedec/admin.py:460
+msgid "Identificación del Documento"
+msgstr "Document Identification"
 
-#: freedec/admin.py:291
+#: freedec/admin.py:473
+msgid "Ciclo de Vida y Reactivación"
+msgstr "Lifecycle and Reactivation"
+
+#: freedec/admin.py:487
+msgid "Destinatarios Autorizados"
+msgstr "Authorized Recipients"
+
+#: freedec/admin.py:692
 msgid ""
-"Registro de actividad y fecha del último acceso o despacho de contraseña."
-msgstr "Activity log and date of last access or password dispatch."
+"No cuenta con permisos para realizar descargas de auditoría administrativa."
+msgstr "You do not have permission to perform administrative audit downloads."
 
-#: freedec/admin.py:454 freedec/models.py:42
+#: freedec/admin.py:696
+msgid "Documento no encontrado."
+msgstr "Document not found."
+
+#: freedec/admin.py:701
+msgid ""
+"El documento ya fue entregado y no se encuentra disponible en la pasarela."
+msgstr "The document has already been delivered and is no longer available on the gateway."
+
+#: freedec/admin.py:726 freedec/models.py:229
+msgid "Descarga de auditoría administrativa"
+msgstr "Administrative audit download"
+
+#: freedec/admin.py:729
+msgid "No cuenta con permisos de auditoría."
+msgstr "You do not have audit permissions."
+
+#: freedec/admin.py:735
+msgid ""
+"Por motivos de seguridad, la descarga de auditoría debe realizarse de forma "
+"individual por documento."
+msgstr "For security reasons, the audit download must be performed individually per document."
+
+#: freedec/admin.py:744 freedec/models.py:48
 msgid "Hash SHA-256"
 msgstr "SHA-256 Hash"
 
-#: freedec/admin.py:458
-msgid "Descargar Cifrado"
-msgstr "Download Encrypted"
+#: freedec/admin.py:748
+msgid "Política"
+msgstr "Policy"
 
-#: freedec/admin.py:470
+#: freedec/admin.py:758
+msgid "Estado"
+msgstr "Status"
+
+#: freedec/admin.py:764
+msgid "desconocido"
+msgstr "unknown"
+
+#: freedec/admin.py:778
+msgid "Plantilla Correo"
+msgstr "Email Template"
+
+#: freedec/admin.py:792
+msgid "Auditoría"
+msgstr "Audit"
+
+#: freedec/admin.py:807
 msgid "Eliminar"
 msgstr "Delete"
 
-#: freedec/forms.py:18 freedec/models.py:141
-msgid "Documento"
-msgstr "Document"
+#: freedec/forms.py:22
+msgid "Identificador del Documento (Hash SHA-256)"
+msgstr "Document Identifier (SHA-256 Hash)"
 
-#: freedec/forms.py:19
-msgid "Seleccione el archivo que desea consultar."
-msgstr "Select the file you want to verify."
+#: freedec/forms.py:28
+msgid "Cadena hexadecimal de 64 caracteres"
+msgstr "64-character hexadecimal string"
 
-#: freedec/forms.py:23
-msgid "Código de Acceso"
-msgstr "Access Code"
+#: freedec/forms.py:34
+msgid ""
+"Identificador de 64 caracteres facilitado para la descarga del documento."
+msgstr "64-character identifier provided for downloading the document."
 
-#: freedec/forms.py:27
-msgid "Introduzca su código de acceso..."
-msgstr "Enter your access code..."
-
-#: freedec/forms.py:32
-msgid "Código facilitado por el emisor del documento."
-msgstr "Code provided by the document sender."
-
-#: freedec/forms.py:35
+#: freedec/forms.py:37
 msgid "Correo Electrónico"
 msgstr "Email Address"
 
-#: freedec/forms.py:39
-msgid "su-correo@ejemplo.com"
-msgstr "your-email@example.com"
+#: freedec/forms.py:41
+msgid "su-correo@empresa.com"
+msgstr "your-email@company.com"
 
-#: freedec/forms.py:43
-msgid "Dirección de correo donde se enviará la contraseña."
-msgstr "Email address where the password will be sent."
+#: freedec/forms.py:46
+msgid ""
+"Dirección de correo autorizada donde recibirá el código de verificación."
+msgstr "Authorized email address where you will receive the verification code."
 
-#: freedec/forms.py:49 freedec/forms.py:97
-msgid "Debe proporcionar un archivo."
-msgstr "You must provide a file."
+#: freedec/forms.py:53
+msgid ""
+"El identificador SHA-256 debe componerse de 64 caracteres hexadecimales "
+"[0-9a-f]."
+msgstr "The SHA-256 identifier must consist of 64 hexadecimal characters [0-9a-f]."
 
-#: freedec/forms.py:55 freedec/forms.py:103 freedec/services.py:223
+#: freedec/forms.py:78
+msgid "Código de Verificación (6 dígitos)"
+msgstr "Verification Code (6 digits)"
+
+#: freedec/forms.py:91
+msgid "Introduzca el código de 6 dígitos recibido en su correo electrónico."
+msgstr "Enter the 6-digit code received in your email."
+
+#: freedec/forms.py:97
+msgid "El identificador SHA-256 no es válido."
+msgstr "The SHA-256 identifier is invalid."
+
+#: freedec/forms.py:107
+msgid "El código de verificación debe contener 6 dígitos numéricos."
+msgstr "The verification code must contain 6 numeric digits."
+
+#: freedec/models.py:29
+msgid "Descarga única (primer acceso)"
+msgstr "Single download (first access)"
+
+#: freedec/models.py:30
+msgid "Disponible para todos los destinatarios"
+msgstr "Available for all recipients"
+
+#: freedec/models.py:35
+msgid "Nombre original del documento"
+msgstr "Original document filename"
+
+#: freedec/models.py:36
+msgid "Nombre del archivo original cargado en el sistema."
+msgstr "Original filename uploaded to the system."
+
+#: freedec/models.py:42
+msgid "Descripción informativa para las notificaciones por correo electrónico."
+msgstr "Informative description for email notifications."
+
+#: freedec/models.py:49
+msgid "Hash SHA-256 hexadecimal (64 caracteres) del archivo original."
+msgstr "SHA-256 hexadecimal hash (64 characters) of original file."
+
+#: freedec/models.py:53
+msgid "Archivo cifrado"
+msgstr "Encrypted file"
+
+#: freedec/models.py:54
+msgid "Archivo binario cifrado en reposo con la DEK."
+msgstr "Binary file encrypted at rest with the DEK."
+
+#: freedec/models.py:58
+msgid "Clave Maestra de Datos (DEK) cifrada"
+msgstr "Encrypted Data Encryption Key (DEK)"
+
+#: freedec/models.py:59
+msgid "DEK cifrada internamente con settings.FREEDEC_FERNET_KEY."
+msgstr "DEK internally encrypted with settings.FREEDEC_FERNET_KEY."
+
+#: freedec/models.py:64
+msgid "Lista de correos autorizados en minúsculas."
+msgstr "List of authorized emails in lowercase."
+
+#: freedec/models.py:70
+msgid "Política de destrucción"
+msgstr "Destruction policy"
+
+#: freedec/models.py:71
+msgid "Determina si se destruye al primer acceso o tras el acceso de todos."
+msgstr "Determines whether it is destroyed upon first access or after all have accessed."
+
+#: freedec/models.py:76
+msgid "Destinatarios que han consumido"
+msgstr "Recipients who have consumed"
+
+#: freedec/models.py:77
+msgid "Lista de correos que ya han descargado su copia individual."
+msgstr "List of emails that have already downloaded their individual copy."
+
+#: freedec/models.py:82
+msgid "¿Documento consumido?"
+msgstr "Document consumed?"
+
+#: freedec/models.py:83
+msgid "Indica si el documento ya fue canjeado y destruido del almacenamiento."
+msgstr "Indicates whether the document has already been redeemed and destroyed from storage."
+
+#: freedec/models.py:89
+msgid "Consumido por"
+msgstr "Consumed by"
+
+#: freedec/models.py:90
+msgid ""
+"Correo del usuario o resumen de destinatarios que retiraron el documento."
+msgstr "User email or summary of recipients who retrieved the document."
+
+#: freedec/models.py:95
+msgid "Fecha y hora del canje"
+msgstr "Redemption date and time"
+
+#: freedec/models.py:96
+msgid "Momento exacto en el que el documento fue canjeado."
+msgstr "Exact moment when the document was redeemed."
+
+#: freedec/models.py:100
+msgid "Fecha de alta"
+msgstr "Creation date"
+
+#: freedec/models.py:101
+msgid "Marca temporal de creación del registro."
+msgstr "Timestamp of record creation."
+
+#: freedec/models.py:105
+msgid "Fecha de actualización"
+msgstr "Update date"
+
+#: freedec/models.py:106
+msgid "Marca temporal de la última actualización."
+msgstr "Timestamp of last update."
+
+#: freedec/models.py:110
+msgid "Documento Cifrado"
+msgstr "Encrypted Document"
+
+#: freedec/models.py:111
+msgid "Documentos Cifrados"
+msgstr "Encrypted Documents"
+
+#: freedec/models.py:114
+msgid "Puede realizar descarga de auditoría administrativa"
+msgstr "Can perform administrative audit download"
+
+#: freedec/models.py:160 freedec/models.py:235
+msgid "Documento"
+msgstr "Document"
+
+#: freedec/models.py:164
+msgid "Correo oficial del solicitante"
+msgstr "Official email of applicant"
+
+#: freedec/models.py:168
+msgid "Código OTP"
+msgstr "OTP Code"
+
+#: freedec/models.py:169
+msgid "Código numérico de 6 dígitos generado criptográficamente."
+msgstr "Cryptographically generated 6-digit numeric code."
+
+#: freedec/models.py:173
+msgid "Fecha de creación"
+msgstr "Creation date"
+
+#: freedec/models.py:176
+msgid "Fecha de caducidad"
+msgstr "Expiration date"
+
+#: freedec/models.py:177
+msgid "Caducidad estricta a 15 minutos."
+msgstr "Strict expiration at 15 minutes."
+
+#: freedec/models.py:181
+msgid "¿Utilizado?"
+msgstr "Used?"
+
+#: freedec/models.py:182
+msgid "Indica si el token ya fue consumido o revocado."
+msgstr "Indicates whether the token has already been consumed or revoked."
+
+#: freedec/models.py:186
+msgid "Intentos fallidos"
+msgstr "Failed attempts"
+
+#: freedec/models.py:187
+msgid "Contador de intentos fallidos. Se revoca al alcanzar 3."
+msgstr "Failed attempts counter. Revoked upon reaching 3."
+
+#: freedec/models.py:191
+msgid "Token de Verificación OTP"
+msgstr "OTP Verification Token"
+
+#: freedec/models.py:192
+msgid "Tokens de Verificación OTP"
+msgstr "OTP Verification Tokens"
+
+#: freedec/models.py:222
+msgid "Solicitud de código de verificación"
+msgstr "Verification code request"
+
+#: freedec/models.py:223
+msgid "Código de verificación enviado"
+msgstr "Verification code sent"
+
+#: freedec/models.py:224
+msgid "Descarga completada y retirada de la pasarela"
+msgstr "Download completed and retrieved from gateway"
+
+#: freedec/models.py:225
+msgid "Descarga individual completada (en espera de restantes destinatarios)"
+msgstr "Individual download completed (waiting for remaining recipients)"
+
+#: freedec/models.py:226
+msgid "Reactivación de documento"
+msgstr "Document reactivation"
+
+#: freedec/models.py:227
+msgid "Acceso a documento no disponible"
+msgstr "Access to unavailable document"
+
+#: freedec/models.py:228
+msgid "Código bloqueado por intentos fallidos"
+msgstr "Code locked due to failed attempts"
+
+#: freedec/models.py:239
+msgid "Correo del solicitante"
+msgstr "Applicant email"
+
+#: freedec/models.py:244
+msgid "Acción"
+msgstr "Action"
+
+#: freedec/models.py:249
+msgid "Dirección IP"
+msgstr "IP Address"
+
+#: freedec/models.py:254
+msgid "User-Agent"
+msgstr "User-Agent"
+
+#: freedec/models.py:258
+msgid "Fecha y hora"
+msgstr "Date and time"
+
+#: freedec/models.py:262
+msgid "Registro de Auditoría de Acceso"
+msgstr "Access Audit Log"
+
+#: freedec/models.py:263
+msgid "Registros de Auditoría de Accesos"
+msgstr "Access Audit Logs"
+
+#: freedec/services.py:31
+msgid ""
+"Si los datos indicados corresponden a un documento disponible y una "
+"dirección de correo autorizada, recibirá en breve un código de verificación "
+"en su buzón."
+msgstr "If the provided details correspond to an available document and an authorized email address, you will shortly receive a verification code in your inbox."
+
+#: freedec/services.py:136
+msgid ""
+"El archivo proporcionado no coincide con el hash SHA-256 del documento "
+"original."
+msgstr "The provided file does not match the SHA-256 hash of the original document."
+
+#: freedec/services.py:220
 #, python-format
 msgid "El archivo excede el tamaño máximo permitido de %(max_size)s MB."
 msgstr "The file exceeds the maximum allowed size of %(max_size)s MB."
 
-#: freedec/forms.py:77
-msgid "Archivo Cifrado (.enc)"
-msgstr "Encrypted File (.enc)"
+#: freedec/services.py:242
+msgid "Ya existe un documento registrado con este mismo hash SHA-256."
+msgstr "A document with this same SHA-256 hash is already registered."
 
-#: freedec/forms.py:78
-msgid "Seleccione el archivo con extensión .enc que desea descifrar."
-msgstr "Select the .enc file you want to decrypt."
+#: freedec/services.py:322
+msgid "fecha no registrada"
+msgstr "unregistered date"
 
-#: freedec/forms.py:82
-msgid "Contraseña de Descifrado"
-msgstr "Decryption Password"
+#: freedec/services.py:324
+msgid "un usuario autorizado"
+msgstr "an authorized user"
 
-#: freedec/forms.py:86
-msgid "Pegue la contraseña recibida por correo..."
-msgstr "Paste the password received by email..."
-
-#: freedec/forms.py:91
-msgid ""
-"Contraseña que le fue remitida a su correo electrónico tras la verificación."
-msgstr "Password sent to your email after verification."
-
-#: freedec/forms.py:111
-msgid "Debe introducir la contraseña de descifrado."
-msgstr "You must enter the decryption password."
-
-#: freedec/models.py:35
-msgid "Nombre original del archivo"
-msgstr "Original filename"
-
-#: freedec/models.py:36
-msgid "Nombre del archivo original subido por el administrador."
-msgstr "Original filename uploaded by the administrator."
-
-#: freedec/models.py:43
-msgid ""
-"Hash SHA-256 hexadecimal (64 caracteres) del archivo original sin cifrar."
-msgstr ""
-"64-character hexadecimal SHA-256 hash of the original unencrypted file."
-
-#: freedec/models.py:47
-msgid "Archivo cifrado"
-msgstr "Encrypted file"
-
-#: freedec/models.py:48
-msgid "Archivo binario cifrado en reposo con Fernet (AES-128-CBC + HMAC)."
-msgstr "Binary file encrypted at rest with Fernet (AES-128-CBC + HMAC)."
-
-#: freedec/models.py:52
-msgid "Código de acceso"
-msgstr "Access code"
-
-#: freedec/models.py:53
-msgid ""
-"Hash PBKDF2 del código secreto de acceso necesario para la verificación."
-msgstr "PBKDF2 hash of the secret access code required for verification."
-
-#: freedec/models.py:56
-msgid "Contraseña cifrada"
-msgstr "Encrypted password"
-
-#: freedec/models.py:57
-msgid "Contraseña o clave de descifrado cifrada con Fernet (token seguro)."
-msgstr "Password or decryption key encrypted with Fernet (secure token)."
-
-#: freedec/models.py:61
-msgid "Correos autorizados"
-msgstr "Authorized emails"
-
-#: freedec/models.py:62
-msgid "Lista de correos electrónicos autorizados en formato JSON (minúsculas)."
-msgstr "List of authorized email addresses in JSON format (lowercase)."
-
-#: freedec/models.py:66
-msgid "Veces accedido"
-msgstr "Access count"
-
-#: freedec/models.py:67
-msgid "Número total de solicitudes de contraseña o descifrados autorizados."
-msgstr "Total number of password requests or authorized decryptions."
-
-#: freedec/models.py:72
-msgid "Último acceso"
-msgstr "Last access"
-
-#: freedec/models.py:73
-msgid "Fecha y hora de la última solicitud de contraseña o descifrado."
-msgstr "Date and time of the last password request or decryption."
-
-#: freedec/models.py:79
-msgid "Último correo que accedió"
-msgstr "Last accessing email"
-
-#: freedec/models.py:80
-msgid "Dirección de correo del último usuario que solicitó la clave."
-msgstr "Email address of the last user who requested the key."
-
-#: freedec/models.py:84
-msgid "Fecha de creación"
-msgstr "Creation date"
-
-#: freedec/models.py:85
-msgid "Fecha y hora de registro y cifrado del documento."
-msgstr "Date and time of document registration and encryption."
-
-#: freedec/models.py:89
-msgid "Fecha de actualización"
-msgstr "Update date"
-
-#: freedec/models.py:90
-msgid "Fecha y hora de la última modificación del registro."
-msgstr "Date and time of the last record modification."
-
-#: freedec/models.py:94
-msgid "Documento Cifrado"
-msgstr "Encrypted Document"
-
-#: freedec/models.py:95
-msgid "Documentos Cifrados"
-msgstr "Encrypted Documents"
-
-#: freedec/models.py:145
-msgid "Correo solicitante"
-msgstr "Requesting email"
-
-#: freedec/models.py:150
-msgid "Acción"
-msgstr "Action"
-
-#: freedec/models.py:151
-msgid "Tipo de evento: 'solicitud_clave' o 'descifrado'."
-msgstr "Event type: 'solicitud_clave' or 'descifrado'."
-
-#: freedec/models.py:156
-msgid "Dirección IP"
-msgstr "IP Address"
-
-#: freedec/models.py:160
-msgid "Fecha y hora de acceso"
-msgstr "Access timestamp"
-
-#: freedec/models.py:164
-msgid "Registro de Auditoría de Acceso"
-msgstr "Access Audit Log"
-
-#: freedec/models.py:165
-msgid "Registros de Auditoría de Accesos"
-msgstr "Access Audit Logs"
-
-#: freedec/services.py:235
+#: freedec/services.py:344
 #, python-format
-msgid "Ya existe un documento registrado con el hash SHA-256: %(file_hash)s."
-msgstr "A document is already registered with SHA-256 hash: %(file_hash)s."
+msgid "Información sobre su solicitud: Documento '%(filename)s'"
+msgstr "Information regarding your request: Document '%(filename)s'"
 
-#: freedec/services.py:317
-msgid "El archivo supera el tamaño máximo permitido."
-msgstr "The file exceeds the maximum allowed size."
+#: freedec/services.py:379
+#, python-format
+msgid "Aviso: Copia ya descargada de '%(filename)s'"
+msgstr "Notice: Copy already downloaded for '%(filename)s'"
 
-#: freedec/services.py:321
+#: freedec/services.py:436
+#, python-format
+msgid "Código de verificación para '%(filename)s' - Freedec"
+msgstr "Verification code for '%(filename)s' - Freedec"
+
+#: freedec/services.py:541
+msgid "El código de verificación no es válido o ha expirado."
+msgstr "The verification code is invalid or has expired."
+
+#: freedec/services.py:548
+msgid "El documento ya no se encuentra disponible para su descarga."
+msgstr "The document is no longer available for download."
+
+#: freedec/services.py:560
 msgid ""
-"Si el archivo, el código de acceso y el correo electrónico coinciden con los "
-"registros autorizados, la clave de descifrado ha sido enviada a su buzón."
-msgstr ""
-"If the file, access code, and email match the authorized records, the "
-"decryption key has been sent to your inbox."
+"Usted ya ha descargado este documento con anterioridad. Cada destinatario "
+"dispone de un único acceso."
+msgstr "You have already downloaded this document previously. Each recipient has a single access."
 
-#: freedec/services.py:398
-msgid "Error interno en el procesamiento criptográfico."
-msgstr "Internal error in cryptographic processing."
-
-#: freedec/services.py:419
-#, python-format
-msgid "[Freedec] Clave de recuperación para su documento: %(doc_name)s"
-msgstr "[Freedec] Recovery key for your document: %(doc_name)s"
-
-#: freedec/services.py:431
-msgid "Estimado usuario,"
-msgstr "Dear user,"
-
-#: freedec/services.py:432
-msgid "Se ha verificado con éxito su documento y su autorización de acceso."
-msgstr ""
-"Your document and access authorization have been successfully verified."
-
-#: freedec/services.py:433
-#, python-format
-msgid "📄 Nombre del archivo: %(doc_name)s"
-msgstr "📄 File name: %(doc_name)s"
-
-#: freedec/services.py:434
-msgid "Su contraseña o clave de descifrado es:"
-msgstr "Your password or decryption key is:"
-
-#: freedec/services.py:440
-#, python-format
+#: freedec/services.py:579
 msgid ""
-"Para descifrar su archivo '%(enc_name)s' y recuperar el documento original "
-"sin cifrar, puede acceder al portal público en la pestaña 'Descifrar Archivo "
-"(.enc)':"
-msgstr ""
-"To decrypt your file '%(enc_name)s' and recover the original unencrypted "
-"document, you can access the public portal under the 'Decrypt File (.enc)' "
-"tab:"
+"Ha superado el número máximo de intentos permitidos. El acceso ha sido "
+"bloqueado por seguridad."
+msgstr "You have exceeded the maximum number of allowed attempts. Access has been locked for security."
 
-#: freedec/services.py:446
-msgid "Por motivos de seguridad, no comparta esta clave con terceros."
-msgstr "For security reasons, do not share this key with third parties."
+#: freedec/services.py:587
+#, python-format
+msgid "Código de verificación incorrecto. Intentos restantes: %(remaining)d."
+msgstr "Incorrect verification code. Remaining attempts: %(remaining)d."
 
-#: freedec/services.py:447
-msgid "Atentamente,"
-msgstr "Sincerely,"
+#: freedec/services.py:601
+msgid "El archivo cifrado no está disponible en el servidor."
+msgstr "The encrypted file is not available on the server."
 
-#: freedec/services.py:448
-msgid "Sistema Automatizado Freedec"
-msgstr "Freedec Automated System"
-
-#: freedec/services.py:466
-msgid "Error de validación en los parámetros del mensaje de correo."
-msgstr "Validation error in email message parameters."
-
-#: freedec/services.py:469
-msgid "Error al enviar el correo electrónico con las credenciales."
-msgstr "Error sending the email with credentials."
-
-#: freedec/services.py:496
-msgid "Debe proporcionar la contraseña de descifrado recibida por correo."
-msgstr "You must provide the decryption password received by email."
-
-#: freedec/services.py:508
-msgid "El archivo cifrado está vacío."
-msgstr "The encrypted file is empty."
-
-#: freedec/services.py:514
-msgid "El archivo no es un archivo cifrado válido de Freedec o está dañado."
-msgstr "The file is not a valid Freedec encrypted file or is corrupted."
-
-#: freedec/services.py:521
-msgid "No se encontró ningún registro correspondiente a este archivo."
-msgstr "No record found corresponding to this file."
-
-#: freedec/services.py:528
-msgid "Error interno en la verificación criptográfica."
-msgstr "Internal error in cryptographic verification."
-
-#: freedec/services.py:532
-msgid "La contraseña introducida no coincide con la clave del documento."
-msgstr "The entered password does not match the document key."
-
-#: freedec/services.py:555
-msgid "Documento descifrado correctamente."
+#: freedec/services.py:650
+msgid "Documento descifrado con éxito."
 msgstr "Document decrypted successfully."
 
+#: freedec/services.py:654
+msgid "Se produjo un error al procesar el descifrado del documento."
+msgstr "An error occurred while processing document decryption."
+
+#: freedec/services.py:669
+msgid "El documento ya ha sido consumido y destruido del servidor."
+msgstr "The document has already been consumed and destroyed from the server."
+
+#: freedec/services.py:672
+msgid "El archivo cifrado no está disponible."
+msgstr "The encrypted file is not available."
+
+#: freedec/services.py:703
+msgid "Descarga de auditoría completada."
+msgstr "Audit download completed."
+
+#: freedec/services.py:707
+msgid "Error al descifrar el documento para auditoría."
+msgstr "Error decrypting document for audit."
+
 #: freedec/templates/freedec/base.html:7
-msgid "Freedec - Cifrado y Recuperación Segura"
-msgstr "Freedec - Secure Encryption & Recovery"
+msgid "Freedec - Entrega Segura de Documentos"
+msgstr "Freedec - Secure Document Delivery"
 
 #: freedec/templates/freedec/base.html:346
-#: freedec/templates/freedec/public_decrypt.html:74
-#: freedec/templates/freedec/public_request.html:93
-msgid "Solicitar Contraseña"
-msgstr "Request Password"
+msgid "Solicitar Acceso"
+msgstr "Request Access"
 
 #: freedec/templates/freedec/base.html:347
-msgid "Descifrar Archivo (.enc)"
-msgstr "Decrypt File (.enc)"
+#: freedec/templates/freedec/public_decrypt.html:4
+msgid "Descargar Documento"
+msgstr "Download Document"
 
 #: freedec/templates/freedec/base.html:371
-msgid ""
-"Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y "
-"Recuperación de Contraseñas"
-msgstr ""
-"Freedec &copy; 2026 &mdash; Cryptographic Verification and Password Recovery "
-"Service"
+msgid "Freedec &copy; 2026 &mdash; Pasarela de Entrega Segura de Documentación"
+msgstr "Freedec &copy; 2026 &mdash; Secure Document Delivery Gateway"
 
 #: freedec/templates/freedec/base.html:379
 msgid "✓ ¡Copiado!"
 msgstr "✓ Copied!"
 
-#: freedec/templates/freedec/public_decrypt.html:4
-msgid "Descifrar Documento (.enc)"
-msgstr "Decrypt Document (.enc)"
-
 #: freedec/templates/freedec/public_decrypt.html:11
-msgid "Descifrar Archivo Cifrado"
-msgstr "Decrypt Encrypted File"
+msgid "Verificación y Descarga de Documento"
+msgstr "Document Verification and Download"
 
 #: freedec/templates/freedec/public_decrypt.html:13
 msgid "Descarga Segura"
@@ -462,73 +565,367 @@ msgstr "Secure Download"
 
 #: freedec/templates/freedec/public_decrypt.html:16
 msgid ""
-"Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le "
-"enviamos a su correo para recuperar y descargar el documento original."
-msgstr ""
-"Upload the protected file (<strong>.enc</strong>) and the password sent to "
-"your email to recover and download the original document."
+"Introduzca el <strong>código de verificación de 6 dígitos</strong> recibido "
+"en su correo electrónico para iniciar la descarga del archivo."
+msgstr "Enter the <strong>6-digit verification code</strong> received in your email to initiate document download."
 
-#: freedec/templates/freedec/public_decrypt.html:23
-msgid "Error en el descifrado:"
-msgstr "Decryption error:"
+#: freedec/templates/freedec/public_decrypt.html:31
+msgid "Aviso:"
+msgstr "Notice:"
 
-#: freedec/templates/freedec/public_decrypt.html:67
-msgid "Descifrar y Descargar Archivo Original"
-msgstr "Decrypt and Download Original File"
+#: freedec/templates/freedec/public_decrypt.html:48
+msgid "Identificador del documento:"
+msgstr "Document identifier:"
 
-#: freedec/templates/freedec/public_decrypt.html:72
-msgid "¿Aún no tienes la contraseña?"
-msgstr "Don't have the password yet?"
+#: freedec/templates/freedec/public_decrypt.html:53
+msgid "Dirección de correo:"
+msgstr "Email address:"
 
-#: freedec/templates/freedec/public_decrypt.html:74
-msgid "Si tienes el archivo pero no has solicitado la contraseña, ve a"
-msgstr "If you have the file but have not requested the password, go to"
+#: freedec/templates/freedec/public_decrypt.html:78
+msgid "Verificar código y descargar documento"
+msgstr "Verify code and download document"
 
-#: freedec/templates/freedec/public_decrypt.html:74
+#: freedec/templates/freedec/public_decrypt.html:84
+msgid "Avisos de seguridad:"
+msgstr "Security notices:"
+
+#: freedec/templates/freedec/public_decrypt.html:87
 msgid ""
-"sube tu archivo e introduce tu código de acceso para recibirla en tu correo "
-"electrónico."
-msgstr ""
-"upload your file and enter your access code to receive it in your email."
+"Dispone de un máximo de 3 intentos para introducir el código de verificación "
+"recibido."
+msgstr "You have a maximum of 3 attempts to enter the received verification code."
+
+#: freedec/templates/freedec/public_decrypt.html:90
+msgid ""
+"Por motivos de confidencialidad, el documento dejará de estar disponible en "
+"la plataforma una vez completada la entrega."
+msgstr "For confidentiality reasons, the document will no longer be available on the platform once delivery is complete."
 
 #: freedec/templates/freedec/public_request.html:4
+msgid "Solicitar Documento"
+msgstr "Request Document"
+
 #: freedec/templates/freedec/public_request.html:11
-msgid "Entrega Segura de Contraseña"
-msgstr "Secure Password Delivery"
+msgid "Descarga Segura de Documentos"
+msgstr "Secure Document Download"
 
 #: freedec/templates/freedec/public_request.html:13
-msgid "Portal de Usuario"
-msgstr "User Portal"
+msgid "Acceso Seguro"
+msgstr "Secure Access"
 
 #: freedec/templates/freedec/public_request.html:16
 msgid ""
-"Proporcione el documento correspondiente, su código de acceso y su correo "
-"electrónico registrado para recibir la clave de descifrado."
-msgstr ""
-"Provide the corresponding document, your access code, and your registered "
-"email to receive the decryption key."
+"Introduzca el identificador (SHA-256) del documento y su correo electrónico "
+"para recibir un código de verificación."
+msgstr "Enter the document identifier (SHA-256) and your email address to receive a verification code."
 
-#: freedec/templates/freedec/public_request.html:24
-msgid "Estado de la Solicitud:"
-msgstr "Request Status:"
+#: freedec/templates/freedec/public_request.html:66
+msgid "Solicitar código de verificación"
+msgstr "Request verification code"
 
-#: freedec/templates/freedec/public_request.html:30
-msgid "Información de Entrega:"
-msgstr "Delivery Information:"
+#: freedec/templates/freedec/public_request.html:72
+msgid "Información sobre el servicio:"
+msgstr "Service information:"
 
-#: freedec/templates/freedec/public_request.html:32
+#: freedec/templates/freedec/public_request.html:75
+msgid "Identificador único:"
+msgstr "Unique identifier:"
+
+#: freedec/templates/freedec/public_request.html:75
 msgid ""
-"Por motivos de confidencialidad, la clave nunca se muestra en pantalla. Si "
-"el archivo y los datos facilitados corresponden a un registro autorizado, la "
-"contraseña habrá sido remitida a su bandeja de entrada."
-msgstr ""
-"For confidentiality reasons, the key is never displayed on screen. If the "
-"provided file and details match an authorized record, the password has been "
-"sent to your inbox."
+"El acceso se gestiona a través del código SHA-256 facilitado por el "
+"remitente."
+msgstr "Access is managed through the SHA-256 code provided by the sender."
 
-#: freedec/templates/freedec/public_request.html:37
-msgid "Realizar Otra Solicitud"
-msgstr "Make Another Request"
+#: freedec/templates/freedec/public_request.html:76
+msgid "Verificación por correo:"
+msgstr "Email verification:"
+
+#: freedec/templates/freedec/public_request.html:76
+msgid ""
+"Se remitirá un código temporal de un solo uso a la dirección de correo "
+"autorizada."
+msgstr "A temporary one-time code will be sent to the authorized email address."
+
+#: freedec/templates/freedec/public_request.html:77
+msgid "Confidencialidad:"
+msgstr "Confidentiality:"
+
+#: freedec/templates/freedec/public_request.html:77
+msgid ""
+"Una vez completada la entrega, el documento dejará de estar disponible en la "
+"plataforma conforme a las políticas de seguridad establecidas."
+msgstr "Once delivery is complete, the document will no longer be available on the platform according to established security policies."
+
+#: freedec/views.py:205
+msgid ""
+"Debe solicitar el acceso con el identificador del documento antes de "
+"introducir el código de verificación."
+msgstr "You must request access with the document identifier before entering the verification code."
+
+#~ msgid "Contraseña (Opcional)"
+#~ msgstr "Password (Optional)"
+
+#~ msgid "Dejar en blanco para autogenerar una clave segura..."
+#~ msgstr "Leave blank to auto-generate a secure key..."
+
+#~ msgid ""
+#~ "Opcional. Si se deja en blanco, el sistema genera automáticamente una "
+#~ "clave de 24 caracteres."
+#~ msgstr ""
+#~ "Optional. If left blank, the system automatically generates a 24-"
+#~ "character key."
+
+#~ msgid "Correos Autorizados"
+#~ msgstr "Authorized Emails"
+
+#~ msgid ""
+#~ "Destinatarios autorizados. Use '+' para añadir más direcciones (sin JSON)."
+#~ msgstr "Authorized recipients. Use '+' to add more addresses (no JSON)."
+
+#~ msgid "Historial de accesos y trazabilidad de clave"
+#~ msgstr "Access history and key traceability"
+
+#~ msgid "Cifrado y Registro de Nuevo Documento"
+#~ msgstr "Encryption and New Document Registration"
+
+#~ msgid ""
+#~ "Suba el archivo original. La contraseña y el código de acceso se "
+#~ "generarán automáticamente mediante algoritmos de alta entropía."
+#~ msgstr ""
+#~ "Upload the original file. The password and access code will be generated "
+#~ "automatically using high-entropy algorithms."
+
+#~ msgid "Nombre e Identificación Criptográfica"
+#~ msgstr "Cryptographic Name and Identification"
+
+#~ msgid "Nombre original y hash SHA-256 del archivo calculado en la subida."
+#~ msgstr "Original filename and SHA-256 hash calculated during upload."
+
+#~ msgid "Almacenamiento Cifrado"
+#~ msgstr "Encrypted Storage"
+
+#~ msgid ""
+#~ "El archivo y la contraseña se encuentran cifrados en reposo con Fernet "
+#~ "(AES-128-CBC + HMAC)."
+#~ msgstr ""
+#~ "The file and password are encrypted at rest with Fernet (AES-128-CBC + "
+#~ "HMAC)."
+
+#~ msgid "Seguridad y Control de Acceso"
+#~ msgstr "Security and Access Control"
+
+#~ msgid ""
+#~ "El código de acceso se almacena mediante hash PBKDF2 (Zero-Knowledge). "
+#~ "Los correos pueden modificarse usando el botón '+'."
+#~ msgstr ""
+#~ "The access code is stored using PBKDF2 hash (Zero-Knowledge). Emails can "
+#~ "be modified using the '+' button."
+
+#~ msgid "Auditoría y Trazabilidad de Accesos"
+#~ msgstr "Access Audit and Traceability"
+
+#~ msgid ""
+#~ "Registro de actividad y fecha del último acceso o despacho de contraseña."
+#~ msgstr "Activity log and date of last access or password dispatch."
+
+#~ msgid "Descargar Cifrado"
+#~ msgstr "Download Encrypted"
+
+#~ msgid "Seleccione el archivo que desea consultar."
+#~ msgstr "Select the file you want to verify."
+
+#~ msgid "Introduzca su código de acceso..."
+#~ msgstr "Enter your access code..."
+
+#~ msgid "Debe proporcionar un archivo."
+#~ msgstr "You must provide a file."
+
+#~ msgid "Archivo Cifrado (.enc)"
+#~ msgstr "Encrypted File (.enc)"
+
+#~ msgid "Seleccione el archivo con extensión .enc que desea descifrar."
+#~ msgstr "Select the .enc file you want to decrypt."
+
+#~ msgid "Contraseña de Descifrado"
+#~ msgstr "Decryption Password"
+
+#~ msgid "Pegue la contraseña recibida por correo..."
+#~ msgstr "Paste the password received by email..."
+
+#~ msgid ""
+#~ "Contraseña que le fue remitida a su correo electrónico tras la "
+#~ "verificación."
+#~ msgstr "Password sent to your email after verification."
+
+#~ msgid "Debe introducir la contraseña de descifrado."
+#~ msgstr "You must enter the decryption password."
+
+#~ msgid "Código de acceso"
+#~ msgstr "Access code"
+
+#~ msgid ""
+#~ "Hash PBKDF2 del código secreto de acceso necesario para la verificación."
+#~ msgstr "PBKDF2 hash of the secret access code required for verification."
+
+#~ msgid "Contraseña cifrada"
+#~ msgstr "Encrypted password"
+
+#~ msgid "Contraseña o clave de descifrado cifrada con Fernet (token seguro)."
+#~ msgstr "Password or decryption key encrypted with Fernet (secure token)."
+
+#~ msgid "Veces accedido"
+#~ msgstr "Access count"
+
+#~ msgid "Número total de solicitudes de contraseña o descifrados autorizados."
+#~ msgstr "Total number of password requests or authorized decryptions."
+
+#~ msgid "Último acceso"
+#~ msgstr "Last access"
+
+#~ msgid "Fecha y hora de la última solicitud de contraseña o descifrado."
+#~ msgstr "Date and time of the last password request or decryption."
+
+#~ msgid "Último correo que accedió"
+#~ msgstr "Last accessing email"
+
+#~ msgid "Dirección de correo del último usuario que solicitó la clave."
+#~ msgstr "Email address of the last user who requested the key."
+
+#~ msgid "Fecha y hora de registro y cifrado del documento."
+#~ msgstr "Date and time of document registration and encryption."
+
+#~ msgid "Tipo de evento: 'solicitud_clave' o 'descifrado'."
+#~ msgstr "Event type: 'solicitud_clave' or 'descifrado'."
+
+#~ msgid "El archivo supera el tamaño máximo permitido."
+#~ msgstr "The file exceeds the maximum allowed size."
+
+#~ msgid ""
+#~ "Si el archivo, el código de acceso y el correo electrónico coinciden con "
+#~ "los registros autorizados, la clave de descifrado ha sido enviada a su "
+#~ "buzón."
+#~ msgstr ""
+#~ "If the file, access code, and email match the authorized records, the "
+#~ "decryption key has been sent to your inbox."
+
+#~ msgid "Error interno en el procesamiento criptográfico."
+#~ msgstr "Internal error in cryptographic processing."
+
+#, python-format
+#~ msgid "[Freedec] Clave de recuperación para su documento: %(doc_name)s"
+#~ msgstr "[Freedec] Recovery key for your document: %(doc_name)s"
+
+#~ msgid "Estimado usuario,"
+#~ msgstr "Dear user,"
+
+#~ msgid "Se ha verificado con éxito su documento y su autorización de acceso."
+#~ msgstr ""
+#~ "Your document and access authorization have been successfully verified."
+
+#, python-format
+#~ msgid "📄 Nombre del archivo: %(doc_name)s"
+#~ msgstr "📄 File name: %(doc_name)s"
+
+#~ msgid "Su contraseña o clave de descifrado es:"
+#~ msgstr "Your password or decryption key is:"
+
+#, python-format
+#~ msgid ""
+#~ "Para descifrar su archivo '%(enc_name)s' y recuperar el documento "
+#~ "original sin cifrar, puede acceder al portal público en la pestaña "
+#~ "'Descifrar Archivo (.enc)':"
+#~ msgstr ""
+#~ "To decrypt your file '%(enc_name)s' and recover the original unencrypted "
+#~ "document, you can access the public portal under the 'Decrypt File "
+#~ "(.enc)' tab:"
+
+#~ msgid "Por motivos de seguridad, no comparta esta clave con terceros."
+#~ msgstr "For security reasons, do not share this key with third parties."
+
+#~ msgid "Atentamente,"
+#~ msgstr "Sincerely,"
+
+#~ msgid "Sistema Automatizado Freedec"
+#~ msgstr "Freedec Automated System"
+
+#~ msgid "Error de validación en los parámetros del mensaje de correo."
+#~ msgstr "Validation error in email message parameters."
+
+#~ msgid "Error al enviar el correo electrónico con las credenciales."
+#~ msgstr "Error sending the email with credentials."
+
+#~ msgid "Debe proporcionar la contraseña de descifrado recibida por correo."
+#~ msgstr "You must provide the decryption password received by email."
+
+#~ msgid "El archivo no es un archivo cifrado válido de Freedec o está dañado."
+#~ msgstr "The file is not a valid Freedec encrypted file or is corrupted."
+
+#~ msgid "No se encontró ningún registro correspondiente a este archivo."
+#~ msgstr "No record found corresponding to this file."
+
+#~ msgid "Error interno en la verificación criptográfica."
+#~ msgstr "Internal error in cryptographic verification."
+
+#~ msgid "Freedec - Cifrado y Recuperación Segura"
+#~ msgstr "Freedec - Secure Encryption & Recovery"
+
+#~ msgid "Descifrar Archivo (.enc)"
+#~ msgstr "Decrypt File (.enc)"
+
+#~ msgid ""
+#~ "Freedec &copy; 2026 &mdash; Servicio de Verificación Criptográfica y "
+#~ "Recuperación de Contraseñas"
+#~ msgstr ""
+#~ "Freedec &copy; 2026 &mdash; Cryptographic Verification and Password "
+#~ "Recovery Service"
+
+#~ msgid "Descifrar Archivo Cifrado"
+#~ msgstr "Decrypt Encrypted File"
+
+#~ msgid ""
+#~ "Suba el archivo protegido (<strong>.enc</strong>) y la contraseña que le "
+#~ "enviamos a su correo para recuperar y descargar el documento original."
+#~ msgstr ""
+#~ "Upload the protected file (<strong>.enc</strong>) and the password sent "
+#~ "to your email to recover and download the original document."
+
+#~ msgid "Error en el descifrado:"
+#~ msgstr "Decryption error:"
+
+#~ msgid "Descifrar y Descargar Archivo Original"
+#~ msgstr "Decrypt and Download Original File"
+
+#~ msgid "¿Aún no tienes la contraseña?"
+#~ msgstr "Don't have the password yet?"
+
+#~ msgid "Si tienes el archivo pero no has solicitado la contraseña, ve a"
+#~ msgstr "If you have the file but have not requested the password, go to"
+
+#~ msgid "Portal de Usuario"
+#~ msgstr "User Portal"
+
+#~ msgid ""
+#~ "Proporcione el documento correspondiente, su código de acceso y su correo "
+#~ "electrónico registrado para recibir la clave de descifrado."
+#~ msgstr ""
+#~ "Provide the corresponding document, your access code, and your registered "
+#~ "email to receive the decryption key."
+
+#~ msgid "Estado de la Solicitud:"
+#~ msgstr "Request Status:"
+
+#~ msgid ""
+#~ "Por motivos de confidencialidad, la clave nunca se muestra en pantalla. "
+#~ "Si el archivo y los datos facilitados corresponden a un registro "
+#~ "autorizado, la contraseña habrá sido remitida a su bandeja de entrada."
+#~ msgstr ""
+#~ "For confidentiality reasons, the key is never displayed on screen. If the "
+#~ "provided file and details match an authorized record, the password has "
+#~ "been sent to your inbox."
+
+#~ msgid "Realizar Otra Solicitud"
+#~ msgstr "Make Another Request"
 
 #~ msgid "Archivo Documental"
 #~ msgstr "Document File"
@@ -553,18 +950,12 @@ msgstr "Make Another Request"
 #~ "Authorized email addresses to receive the password. Use the '+' button to "
 #~ "add more recipients."
 
-#~ msgid "Debe seleccionar un archivo."
-#~ msgstr "You must select a file."
-
 #, python-format
 #~ msgid "Error interno en el procesamiento: %(exc)s"
 #~ msgstr "Internal processing error: %(exc)s"
 
 #~ msgid "Panel de Administrador - Subida y Cifrado"
 #~ msgstr "Administrator Panel - Upload and Encryption"
-
-#~ msgid "Subida y Cifrado de Documentos"
-#~ msgstr "Document Upload and Encryption"
 
 #~ msgid "Admin Exclusivo"
 #~ msgstr "Admin Only"
@@ -585,9 +976,6 @@ msgstr "Make Another Request"
 #~ msgstr ""
 #~ "The file has been encrypted on the server and stored on disk. The "
 #~ "generated cryptographic data is presented below."
-
-#~ msgid "Identificador Criptográfico (Hash SHA-256):"
-#~ msgstr "Cryptographic Identifier (SHA-256 Hash):"
 
 #~ msgid "Copiar Hash"
 #~ msgstr "Copy Hash"
@@ -642,25 +1030,11 @@ msgstr "Make Another Request"
 #~ msgid "Descargar Archivo Cifrado"
 #~ msgstr "Download Encrypted File"
 
-#~ msgid "Destinatarios Autorizados:"
-#~ msgstr "Authorized Recipients:"
-
-#~ msgid "Cifrar y Registrar Otro Documento"
-#~ msgstr "Encrypt and Register Another Document"
-
-#~ msgid "Destinatarios autorizados"
-#~ msgstr "Authorized recipients"
-
 #~ msgid "Eliminar este correo"
 #~ msgstr "Remove this email"
 
 #~ msgid "Añadir otro correo"
 #~ msgstr "Add another email"
-
-#~ msgid ""
-#~ "Solo las direcciones autorizadas podrán solicitar y recibir la clave."
-#~ msgstr ""
-#~ "Only authorized addresses will be able to request and receive the key."
 
 #~ msgid "Cifrar, Hashear y Registrar Documento"
 #~ msgstr "Encrypt, Hash, and Register Document"
@@ -668,15 +1042,6 @@ msgstr "Make Another Request"
 #~ msgid "Cifrado:"
 #~ msgstr "Encryption:"
 
-#~ msgid "Identificación:"
-#~ msgstr "Identification:"
-
-#~ msgid "Seguridad:"
-#~ msgstr "Security:"
-
-#~ msgid "Ocurrió un error interno procesando y cifrando el documento."
-#~ msgstr ""
-#~ "An internal error occurred while processing and encrypting the document."
-
 #~ msgid "Documento cifrado y registrado exitosamente."
 #~ msgstr "Document successfully encrypted and registered."
+

@@ -454,5 +454,60 @@ class FreedecViewsSecurityTestCase(TestCase):
         self.assertFalse(EncryptedDocument.objects.filter(pk=self.document.pk).exists())
         self.assertEqual(DocumentAccessLog.objects.filter(document_id=self.document.pk).count(), 0)
 
+    def test_i18n_language_switcher_and_page_translations(self):
+        """
+        Verifica que el cambio de idioma a inglés (en) y español (es) traduzca correctamente
+        todos los textos, botones, etiquetas y avisos en las vistas públicas de solicitar y descargar.
+        """
+        # 1. Cambiar a inglés mediante set-language
+        set_lang_url = reverse("freedec:set-language")
+        resp_lang = self.client.get(f"{set_lang_url}?lang=en&next={reverse('freedec:request-access')}")
+        self.assertEqual(resp_lang.status_code, 302)
+        self.assertEqual(resp_lang.cookies["django_language"].value, "en")
+
+        # 2. Vista solicitar en inglés
+        req_url = reverse("freedec:request-access")
+        resp_en = self.client.get(req_url)
+        self.assertEqual(resp_en.status_code, 200)
+        self.assertContains(resp_en, "Request Access")
+        self.assertContains(resp_en, "Download Document")
+        self.assertContains(resp_en, "Secure Document Download")
+        self.assertContains(resp_en, "Request verification code")
+        self.assertContains(resp_en, "Document Identifier (SHA-256 Hash)")
+        self.assertContains(resp_en, "Email Address")
+
+        # 3. Vista descargar en inglés
+        redeem_url = reverse("freedec:redeem-otp") + f"?hash={self.document.file_hash}&email={self.allowed_email}"
+        resp_redeem_en = self.client.get(redeem_url)
+        self.assertEqual(resp_redeem_en.status_code, 200)
+        self.assertContains(resp_redeem_en, "Document Verification and Download")
+        self.assertContains(resp_redeem_en, "Verification Code (6 digits)")
+        self.assertContains(resp_redeem_en, "Verify code and download document")
+        self.assertContains(resp_redeem_en, "Security notices:")
+
+        # 4. Cambiar a español mediante set-language
+        resp_lang_es = self.client.get(f"{set_lang_url}?lang=es&next={reverse('freedec:request-access')}")
+        self.assertEqual(resp_lang_es.status_code, 302)
+        self.assertEqual(resp_lang_es.cookies["django_language"].value, "es")
+
+        # 5. Vista solicitar en español
+        resp_es = self.client.get(req_url)
+        self.assertEqual(resp_es.status_code, 200)
+        self.assertContains(resp_es, "Solicitar Acceso")
+        self.assertContains(resp_es, "Descargar Documento")
+        self.assertContains(resp_es, "Descarga Segura de Documentos")
+        self.assertContains(resp_es, "Solicitar código de verificación")
+        self.assertContains(resp_es, "Identificador del Documento (Hash SHA-256)")
+        self.assertContains(resp_es, "Correo Electrónico")
+
+        # 6. Vista descargar en español
+        resp_redeem_es = self.client.get(redeem_url)
+        self.assertEqual(resp_redeem_es.status_code, 200)
+        self.assertContains(resp_redeem_es, "Verificación y Descarga de Documento")
+        self.assertContains(resp_redeem_es, "Código de Verificación (6 dígitos)")
+        self.assertContains(resp_redeem_es, "Verificar código y descargar documento")
+        self.assertContains(resp_redeem_es, "Avisos de seguridad:")
+
+
 
 

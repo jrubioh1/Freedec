@@ -14,7 +14,7 @@ from django.core.mail import send_mail
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from freedec.models import AccessVerificationToken, DocumentAccessLog, EncryptedDocument
 from freedec.validators import (

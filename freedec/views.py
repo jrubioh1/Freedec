@@ -41,13 +41,17 @@ def set_language_view(request: HttpRequest) -> HttpResponseRedirect:
         fallback_url = "/freedec/solicitar/"
 
     next_url = request.GET.get("next") or request.META.get("HTTP_REFERER") or fallback_url
+    if "set-language" in next_url:
+        next_url = fallback_url
     response = HttpResponseRedirect(next_url)
 
     if lang_code and check_for_language(lang_code):
         if hasattr(request, "session"):
             request.session["django_language"] = lang_code
+            request.session["_language"] = lang_code
+        cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "django_language")
         response.set_cookie(
-            getattr(settings, "LANGUAGE_COOKIE_NAME", "django_language"),
+            cookie_name,
             lang_code,
             max_age=getattr(settings, "LANGUAGE_COOKIE_AGE", 365 * 24 * 60 * 60),
             path=getattr(settings, "LANGUAGE_COOKIE_PATH", "/"),
@@ -57,10 +61,48 @@ def set_language_view(request: HttpRequest) -> HttpResponseRedirect:
             samesite=getattr(settings, "LANGUAGE_COOKIE_SAMESITE", "Lax"),
         )
         activate(lang_code)
+        request.LANGUAGE_CODE = lang_code
     return response
 
 
-class RequestAccessView(View):
+class FreedecI18nViewMixin:
+    """
+    Garantiza que el idioma activo se determine y active correctamente
+    a partir del parámetro GET, sesión, cookie o cabeceras HTTP, incluso si el
+    proyecto anfitrión no dispone de 'LocaleMiddleware' en su configuración.
+    """
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        lang_code = request.GET.get("lang")
+        if not lang_code and hasattr(request, "session"):
+            lang_code = request.session.get("django_language") or request.session.get("_language")
+        if not lang_code:
+            cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "django_language")
+            lang_code = request.COOKIES.get(cookie_name)
+        if not lang_code or not check_for_language(lang_code):
+            lang_code = getattr(request, "LANGUAGE_CODE", None)
+        if not lang_code or not check_for_language(lang_code):
+            lang_code = getattr(settings, "LANGUAGE_CODE", "es")
+
+        if lang_code and check_for_language(lang_code):
+            activate(lang_code)
+            request.LANGUAGE_CODE = lang_code
+
+        response = super().dispatch(request, *args, **kwargs)
+
+        if hasattr(response, "set_cookie") and lang_code and check_for_language(lang_code):
+            cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "django_language")
+            if request.COOKIES.get(cookie_name) != lang_code:
+                response.set_cookie(
+                    cookie_name,
+                    lang_code,
+                    max_age=getattr(settings, "LANGUAGE_COOKIE_AGE", 365 * 24 * 60 * 60),
+                    path=getattr(settings, "LANGUAGE_COOKIE_PATH", "/"),
+                )
+        return response
+
+
+class RequestAccessView(FreedecI18nViewMixin, View):
     """
     Vista Web GUI para solicitar acceso mediante Hash SHA-256 y OTP.
     
@@ -79,12 +121,27 @@ class RequestAccessView(View):
             initial["file_hash"] = url_hash.strip().lower()
 
         form = RequestAccessForm(initial=initial)
-        return render(request, self.template_name, {"form": form})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "LANGUAGE_CODE": getattr(request, "LANGUAGE_CODE", "es"),
+            },
+        )
 
     def post(self, request: HttpRequest) -> HttpResponse:
         form = RequestAccessForm(request.POST)
         if not form.is_valid():
-            return render(request, self.template_name, {"form": form}, status=400)
+            return render(
+                request,
+                self.template_name,
+                {
+                    "form": form,
+                    "LANGUAGE_CODE": getattr(request, "LANGUAGE_CODE", "es"),
+                },
+                status=400,
+            )
 
         file_hash = form.cleaned_data["file_hash"]
         email = form.cleaned_data["email"]
@@ -113,7 +170,7 @@ class RequestAccessView(View):
         return HttpResponseRedirect(f"{redeem_url}?hash={file_hash}")
 
 
-class RedeemOtpView(View):
+class RedeemOtpView(FreedecI18nViewMixin, View):
     """
     Vista Web GUI para el canje seguro mediante código OTP de 6 dígitos.
     
@@ -161,6 +218,7 @@ class RedeemOtpView(View):
                 "form": form,
                 "file_hash": file_hash,
                 "email": email,
+                "LANGUAGE_CODE": getattr(request, "LANGUAGE_CODE", "es"),
             },
         )
 
@@ -181,6 +239,7 @@ class RedeemOtpView(View):
                     "form": form,
                     "file_hash": file_hash,
                     "email": email,
+                    "LANGUAGE_CODE": getattr(request, "LANGUAGE_CODE", "es"),
                 },
                 status=400,
             )
@@ -209,6 +268,7 @@ class RedeemOtpView(View):
                     "error_message": message,
                     "file_hash": valid_hash,
                     "email": valid_email,
+                    "LANGUAGE_CODE": getattr(request, "LANGUAGE_CODE", "es"),
                 },
                 status=400,
             )
