@@ -1,7 +1,7 @@
 # Freedec: Sistema de Entrega y Canje Desatendido de Documentos Confidenciales
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://python.org)
-[![Django](https://img.shields.io/badge/Django-5.2-green.svg)](https://djangoproject.com)
+[![Django](https://img.shields.io/badge/Django-5.1%20%7C%205.2%20%7C%206.0%20%7C%206.1-green.svg)](https://djangoproject.com)
 [![DRF](https://img.shields.io/badge/DRF-3.15-red.svg)](https://www.django-rest-framework.org)
 [![Security](https://img.shields.io/badge/Cryptography-SHA--256%20%2B%20OTP%20%2B%20Fernet%20DEK-orange.svg)](https://cryptography.io)
 [![Zeroization](https://img.shields.io/badge/Shredding-Zeroization%20(os.urandom)-darkgreen.svg)](https://owasp.org)
